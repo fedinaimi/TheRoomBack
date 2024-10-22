@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Email Verification - Hackini</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #222;
+            text-align: center;
+            margin-bottom: 24px;
+            font-weight: 600;
+        }
+
+        p {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.7;
+            margin: 0 0 16px;
+            text-align: center;
+        }
+
+        .btn {
+            display: block;
+            width: fit-content;
+            padding: 14px 24px;
+            background: linear-gradient(135deg, #0056b3, #4f9de8);
+            color: #fff;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 8px;
+            margin: 24px auto;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0, 86, 179, 0.3);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, #004899, #408edb);
+            box-shadow: 0 6px 16px rgba(0, 86, 179, 0.4);
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 40px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo img {
+            max-width: 150px;
+        }
+
+        @media only screen and (max-width: 600px) {
+            .container {
+                padding: 20px 15px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+
+            .btn {
+                padding: 12px 20px;
+                font-size: 14px;
+            }
+
+            p {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="logo">
+            <img src="https://example.com/hackini-logo.png" alt="Hackini Logo">
+        </div>
+        <img src="./elepzia.png"/>
+        <h1>Welcome to Hackini!</h1>
+        <p>Hello {{firstName}},</p>
+        <p>Thank you for joining Hackini! Click the button below to verify your email and activate your account.</p>
+        <a href="{{verificationToken}}" class="btn">Verify Email</a>
+        <p>If you didn’t sign up for Hackini, please ignore this email.</p>
+        <div class="footer">
+            <p>© 2024 Hackini. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>
