@@ -1,7 +1,6 @@
 {
-  "name": "TheRoom",
+  "name": "theroom",
   "version": "1.0.0",
-  "description": "",
   "main": "app.js",
   "scripts": {
     "start": "nodemon app.js",
@@ -56,5 +55,6 @@
     "jest": "^29.7.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0"
-  }
+  },
+  "description": ""
 }

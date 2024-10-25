@@ -32,7 +32,7 @@ app.use(morgan("dev"));
 
 // CORS configuration
 app.use(cors({
-  origin: 'http://localhost:3000', // Allow requests from React app
+  origin: '*', // Allow requests from React app
   methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
   credentials: true
 }));
