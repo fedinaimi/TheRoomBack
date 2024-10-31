@@ -14,7 +14,7 @@ router.put('/:id', auth, timeSlotController.updateTimeSlot);
 
 // Delete a time slot (admin)
 router.delete('/:id', auth, timeSlotController.deleteTimeSlot);
-router.get('/scenario/:scenarioId', auth, timeSlotController.getAllTimeSlotsByScenario);
+router.get('/scenario/:scenarioId', timeSlotController.getAllTimeSlotsByScenario);
 router.get('/availability', timeSlotController.getTimeSlotsWithAvailability);
 router.get('/scenario/:scenarioId/week', timeSlotController.getTimeSlotsWithAvailability);
 router.put('/:id/toggle-availability', auth, timeSlotController.toggleAvailability);

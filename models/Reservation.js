@@ -7,7 +7,7 @@ const reservationSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true },
   phone: { type: String, required: true },
-  language: { type: String, required: true },
+  language: { type: String, required: false },
   status: { type: String, enum: ['pending', 'approved', 'declined'], default: 'pending' },
   createdAt: { type: Date, default: Date.now },
 });
