@@ -108,3 +108,28 @@ exports.deleteChapter = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
+
+
+exports.getScenarioFromChapter = async (req, res) => {
+  try {
+      const chapterId = req.params.id; // Get chapter ID from request parameters
+      const chapter = await Chapter.findById(chapterId).populate('scenario'); // Populate the scenario field
+
+      if (!chapter) {
+          return res.status(404).json({ message: 'Chapter not found' });
+      }
+
+      // Return the scenario ID and any other desired chapter information
+      const scenarioId = chapter.scenario._id;
+      res.status(200).json({
+          chapterId: chapter._id,
+          scenarioId: scenarioId,
+          chapterName: chapter.name,
+          // add more fields as needed
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};

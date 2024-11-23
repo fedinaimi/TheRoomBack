@@ -44,64 +44,60 @@ exports.createTimeSlots = async (req, res) => {
 
 exports.createTimeSlots = async (req, res) => {
   try {
-    console.log('Request Body:', req.body);  // Log the request body for debugging
-
     const { scenarioId, dateRange, weekdayTime, weekendTime } = req.body;
 
-    // Ensure the scenarioId and other data are correct
-    if (!scenarioId || !dateRange || !dateRange.from || !dateRange.to || !weekdayTime.startTime || !weekdayTime.endTime) {
-      return res.status(400).json({ message: 'Invalid data: scenarioId, dateRange, and weekdayTime are required.' });
+    // Validate the input data
+    if (!scenarioId || !dateRange || !dateRange.from || !dateRange.to) {
+      return res.status(400).json({ message: 'Invalid data: scenarioId and dateRange are required.' });
     }
 
     const startDate = new Date(dateRange.from);
     const endDate = new Date(dateRange.to);
+    const slotDuration = 90; // Duration in minutes (1h30)
 
-    // To store individual insert results and errors if any
-    const results = [];
-    const errors = [];
+    const timeSlotsData = [];
 
-    // Loop through the date range and insert each time slot as a separate request
+    // Loop through each day in the range
     for (let d = startDate; d <= endDate; d.setDate(d.getDate() + 1)) {
       const currentDate = d.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6; // Check if it's weekend
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
-      // Prepare the data for each time slot
-      const timeSlotData = {
-        scenario: scenarioId,
-        date: currentDate,
-        startTime: isWeekend ? weekendTime.startTime : weekdayTime.startTime,
-        endTime: isWeekend ? weekendTime.endTime : weekdayTime.endTime,
-        isAvailable: true,
-      };
+      const startTime = isWeekend ? weekendTime.startTime : weekdayTime.startTime;
+      const endTime = isWeekend ? weekendTime.endTime : weekdayTime.endTime;
 
-      // Insert each time slot individually
-      try {
-        const timeSlot = await TimeSlot.create(timeSlotData);
-        results.push({ message: `Time slot created for ${currentDate}`, timeSlot });
-      } catch (error) {
-        console.error(`Error creating time slot for ${currentDate}:`, error);
-        errors.push({ message: `Error creating time slot for ${currentDate}`, error });
+      // Convert times to Date objects
+      const start = new Date(`${currentDate}T${startTime}:00`);
+      const end = new Date(`${currentDate}T${endTime}:00`);
+
+      // Generate 90-minute slots within the workday
+      let currentSlotStart = start;
+      while (currentSlotStart < end) {
+        const currentSlotEnd = new Date(currentSlotStart.getTime() + slotDuration * 60 * 1000);
+
+        if (currentSlotEnd > end) break; // Ensure slots don't exceed the workday
+
+        timeSlotsData.push({
+          scenario: scenarioId,
+          date: currentDate,
+          startTime: currentSlotStart.toISOString(),
+          endTime: currentSlotEnd.toISOString(),
+          isAvailable: true,
+        });
+
+        currentSlotStart = currentSlotEnd; // Move to the next slot
       }
     }
 
-    // Send a summary response containing successes and errors
-    if (errors.length > 0) {
-      return res.status(207).json({
-        message: 'Some time slots created with errors',
-        results,
-        errors,
-      });
-    } else {
-      return res.status(201).json({
-        message: 'All time slots created successfully',
-        results,
-      });
-    }
+    // Insert all time slots into the database
+    const timeSlots = await TimeSlot.insertMany(timeSlotsData);
+
+    res.status(201).json({ message: 'Time slots created successfully', timeSlots });
   } catch (error) {
     console.error('Error creating time slots:', error);
-    return res.status(500).json({ message: 'Internal Server Error' });
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
 
 
 
@@ -114,8 +110,39 @@ exports.createTimeSlots = async (req, res) => {
 exports.getAllTimeSlotsByScenario = async (req, res) => {
   try {
     const { scenarioId } = req.params;
-    const timeSlots = await TimeSlot.find({ scenario: scenarioId });
-    res.status(200).json(timeSlots);
+
+    if (!scenarioId) {
+      return res.status(400).json({ message: 'Missing required parameter: scenarioId.' });
+    }
+
+    // Fetch all time slots for the given scenario
+    const timeSlots = await TimeSlot.find({ scenario: scenarioId }).lean();
+
+    // Helper function to format the time slots
+    const formatTimeSlot = (start, end) => {
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+
+      const dayDate = startDate.toLocaleDateString('en-US', options);
+      const startTime = startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const endTime = endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      return `${dayDate}, ${startTime} - ${endTime}`;
+    };
+
+    // Map the time slots to include formatted data
+    const formattedTimeSlots = timeSlots.map(slot => ({
+      id: slot._id,
+      scenario: slot.scenario,
+      date: slot.date,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      formattedTimeSlot: formatTimeSlot(slot.startTime, slot.endTime),
+      isAvailable: slot.isAvailable,
+    }));
+
+    res.status(200).json(formattedTimeSlots);
   } catch (error) {
     console.error('Error fetching time slots by scenario:', error);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -123,10 +150,30 @@ exports.getAllTimeSlotsByScenario = async (req, res) => {
 };
 
 
+
 // Get time slots by scenario and date (for a specific date)
 exports.getTimeSlotsByDate = async (req, res) => {
   try {
-    const { scenarioId, date } = req.query;
+    const { chapterId, date } = req.query;
+    const timeSlots = await TimeSlot.find({ chapter: chapterId, date, isAvailable: true });
+    res.status(200).json(timeSlots);
+  } catch (error) {
+    console.error('Error fetching time slots:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+
+/*
+
+exports.getTimeSlotsByDate = async (req, res) => {
+  try {
+    const { scenarioId } = req.params; // Correctly access scenarioId from params
+    const { date } = req.query; // Access date from query
+
+    if (!date) {
+      return res.status(400).json({ message: 'Date query parameter is required' });
+    }
+
     const timeSlots = await TimeSlot.find({ scenario: scenarioId, date, isAvailable: true });
     res.status(200).json(timeSlots);
   } catch (error) {
@@ -134,6 +181,7 @@ exports.getTimeSlotsByDate = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+*/
 exports.getTimeSlotsWithAvailability = async (req, res) => {
   try {
     const { scenarioId, from, to } = req.query;

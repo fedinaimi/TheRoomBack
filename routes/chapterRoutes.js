@@ -17,5 +17,6 @@ router.put('/:id', auth, chapterController.updateChapter);
 
 // Delete a chapter (admin)
 router.delete('/:id', auth, chapterController.deleteChapter);
-
+router.get('/chapter/:id/scenario', chapterController.getScenarioFromChapter); // Define the route
+// /chapters/67166ce658e1a7f007d0ee32/scenario
 module.exports = router;

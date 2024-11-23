@@ -3,6 +3,7 @@ const TimeSlot = require('../models/TimeSlot');
 const sendEmail = require('../utils/sendEmail');
 
 // Create a new reservation (no login required)
+/*
 exports.createReservation = async (req, res) => {
   try {
     const { scenarioId, chapterId, timeSlotId, name, email, phone, language } = req.body;
@@ -33,6 +34,62 @@ exports.createReservation = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+*/
+
+// Create a new reservation (no login required)
+exports.createReservation = async (req, res) => {
+  try {
+    // Destructure the incoming request body using the new attribute names
+    const { scenario, chapter, timeSlot, name, email, phone, language, status } = req.body;
+
+    // Log the incoming request body for debugging
+    console.log("Received request body:", req.body);
+
+    // Check if the timeSlot is provided
+    if (!timeSlot) {
+      return res.status(400).json({ message: 'Time slot ID is required' });
+    }
+
+    // Fetch the time slot from the database using the new name
+    const timeSlotData = await TimeSlot.findById(timeSlot);
+
+    // Check if the time slot exists
+    if (!timeSlotData) {
+      return res.status(400).json({ message: 'Time slot not found' });
+    }
+
+    // Check if the time slot is available
+    if (!timeSlotData.isAvailable) {
+      return res.status(400).json({ message: 'Selected time slot is not available' });
+    }
+
+    // Create a new reservation using the new attribute names
+    const reservation = new Reservation({
+      scenario, // Using the new name for scenario
+      chapter, // Using the new name for chapter
+      timeSlot: timeSlot, // The timeSlot is already matching
+      name,
+      email,
+      phone,
+      language,
+      status // Assuming you want to keep the status in the reservation as well
+    });
+
+    // Save the reservation to the database
+    await reservation.save();
+
+    // Mark the time slot as unavailable
+    timeSlotData.isAvailable = false;
+    await timeSlotData.save();
+
+    // Send success response
+    res.status(201).json({ message: 'Reservation created successfully', reservation });
+  } catch (error) {
+    console.error('Error creating reservation:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+
 
 // Get all reservations (admin)
 exports.getAllReservations = async (req, res) => {
