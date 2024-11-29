@@ -277,6 +277,9 @@ exports.toggleAvailability = async (req, res) => {
     const { id } = req.params; // Read the time slot ID from the URL params
     const { isAvailable } = req.body; // The new availability status
 
+    console.log('ID Received in Params:', id); // Debugging ID
+    console.log('Body Received:', req.body); // Debugging body content
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid time slot ID' });
     }
@@ -297,3 +300,4 @@ exports.toggleAvailability = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
