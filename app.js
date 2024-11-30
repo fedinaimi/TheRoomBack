@@ -24,7 +24,10 @@ const io = new Server(server, {
   cors: {
     origin: "https://theroomdash-1.onrender.com", // Frontend Render URL
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true, // Required for sending cookies
+
   },
+  
 });
 
 // Middleware
