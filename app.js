@@ -22,7 +22,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "https://theroomdash-1.onrender.com", // Update with frontend URL
+    origin: "https://theroomdash-1.onrender.com", // Frontend Render URL
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   },
 });
@@ -44,6 +44,10 @@ app.use("/api/timeslots", timeSlotRoutes);
 app.use("/api/scenarios", scenarioRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 
 // MongoDB connection
 mongoose.connect(process.env.DB_URL, {
