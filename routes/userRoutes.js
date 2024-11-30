@@ -1,7 +1,7 @@
 // userRoutes.js
 const express = require("express");
 const multer = require('multer');
-const {checkVerification ,updateAvatar, getUsernameById ,signin, signup, signout, forgotPassword, resetPassword, modifyPassword,completeProfile,fetchProfile,fetchAllUsers,updateProfile ,validateBlocNoteOwnership, updateCV} = require("../controllers/UserController");
+const {checkVerification ,updateAvatar,updateUserDetails,updateUserPassword,deleteUser,createUser,verifyResetCode,updateUserVerification, getUsernameById ,signin, signup, signout, forgotPassword, resetPassword, modifyPassword,completeProfile,fetchProfile,fetchAllUsers,updateProfile, updateCV} = require("../controllers/UserController");
 const auth = require("../middlewares/auth");
 const router = express.Router();
 //const {  } = require('../controllers/UserController');
@@ -20,11 +20,14 @@ router.put("/update-profile", auth, updateProfile);
 router.put('/update-avatar', updateAvatar); // Route to update the avatar
 router.put('/update-CV', updateCV); // Route to update the avatar
 router.get("/check-verification", auth, checkVerification); // Add the route
+router.post('/verify-reset-code', verifyResetCode);
+router.get('/users', auth, fetchAllUsers);
+router.post('/users', auth, createUser);
+router.put('/users/:userId/verification', auth, updateUserVerification);
+router.delete('/users/:userId', auth, deleteUser);
 
-
-
-
-// In your route
+router.put('/users/:userId', auth, updateUserDetails); // Update user details
+router.put('/users/:userId/password', auth, updateUserPassword); // Update password
 
 
 

@@ -1,7 +1,8 @@
 const Reservation = require('../models/Reservation');
 const TimeSlot = require('../models/TimeSlot');
 const sendEmail = require('../utils/sendEmail');
-
+const Notification = require('../models/Notifications');
+const User = require('../models/User'); // Import the User model
 // Create a new reservation (no login required)
 /*
 exports.createReservation = async (req, res) => {
@@ -36,59 +37,66 @@ exports.createReservation = async (req, res) => {
 };
 */
 
-// Create a new reservation (no login required)
+
 exports.createReservation = async (req, res) => {
   try {
-    // Destructure the incoming request body using the new attribute names
-    const { scenario, chapter, timeSlot, name, email, phone, language, status } = req.body;
+    const { scenario, chapter, timeSlot, name, email, phone, language } = req.body;
 
-    // Log the incoming request body for debugging
-    console.log("Received request body:", req.body);
-
-    // Check if the timeSlot is provided
-    if (!timeSlot) {
-      return res.status(400).json({ message: 'Time slot ID is required' });
+    // Validate required fields
+    if (!scenario || !chapter || !timeSlot || !name || !email || !phone) {
+      return res.status(400).json({ message: 'All fields are required: scenario, chapter, timeSlot, name, email, and phone.' });
     }
 
-    // Fetch the time slot from the database using the new name
+    // Check if the time slot exists and is available
     const timeSlotData = await TimeSlot.findById(timeSlot);
-
-    // Check if the time slot exists
-    if (!timeSlotData) {
-      return res.status(400).json({ message: 'Time slot not found' });
+    if (!timeSlotData || !timeSlotData.isAvailable) {
+      return res.status(400).json({ message: 'Time slot not available or does not exist.' });
     }
 
-    // Check if the time slot is available
-    if (!timeSlotData.isAvailable) {
-      return res.status(400).json({ message: 'Selected time slot is not available' });
-    }
-
-    // Create a new reservation using the new attribute names
-    const reservation = new Reservation({
-      scenario, // Using the new name for scenario
-      chapter, // Using the new name for chapter
-      timeSlot: timeSlot, // The timeSlot is already matching
-      name,
-      email,
-      phone,
-      language,
-      status // Assuming you want to keep the status in the reservation as well
-    });
-
-    // Save the reservation to the database
+    // Create a new reservation
+    const reservation = new Reservation({ scenario, chapter, timeSlot, name, email, phone, language });
     await reservation.save();
 
-    // Mark the time slot as unavailable
+    // Mark time slot as unavailable
     timeSlotData.isAvailable = false;
     await timeSlotData.save();
 
-    // Send success response
+    // Create a notification
+    const notification = new Notification({
+      message: `New reservation by ${name}`,
+      reservationId: reservation._id,
+      details: `Reservation for scenario: ${scenario}, chapter: ${chapter}, time slot: ${timeSlot}.`,
+    });
+    
+    await notification.save();
+
+    // Emit real-time notification to all connected clients
+    global.io.emit('reservationCreated', notification);
+
+    // Fetch admin and subadmin emails
+    const admins = await User.find({ usertype: { $in: ['admin', 'subadmin'] } }).select('email');
+    const adminEmails = admins.map((admin) => admin.email);
+
+    // Send email notifications
+    const emailContent = `
+      <h3>New Reservation Created</h3>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Phone:</strong> ${phone}</p>
+      <p><strong>Language:</strong> ${language || 'Not specified'}</p>
+    `;
+    for (const adminEmail of adminEmails) {
+      await sendEmail(adminEmail, 'New Reservation Created', emailContent);
+    }
+
     res.status(201).json({ message: 'Reservation created successfully', reservation });
   } catch (error) {
-    console.error('Error creating reservation:', error);
+    console.error('Error creating reservation:', error.message || error);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
+
 
 
 // Get all reservations (admin)

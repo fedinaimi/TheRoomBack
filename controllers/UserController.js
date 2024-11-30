@@ -378,3 +378,150 @@ exports.checkVerification = async (req, res) => {
     res.status(500).send({ message: "Internal Server Error" });
   }
 };
+
+
+exports.verifyResetCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    const user = await User.findOne({
+      resetPasswordToken: code,
+      resetPasswordExpires: { $gt: Date.now() }, // Ensure the token has not expired
+    });
+
+    if (!user) {
+      return res.status(400).send({ message: "Invalid or expired reset code" });
+    }
+
+    res.status(200).send({ message: "Reset code is valid" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+};
+exports.fetchAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-hash -salt');
+    res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching users', error });
+  }
+};
+
+// Create user
+exports.createUser = async (req, res) => {
+  try {
+    const { firstName, lastName, email, password, usertype } = req.body;
+
+    if (!['admin', 'subadmin'].includes(usertype)) {
+      return res.status(400).json({ message: 'Invalid usertype' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+
+    const user = new User({ firstName, lastName, email, usertype, verified: true });
+    user.setPassword(password);
+    await user.save();
+
+    res.status(201).json({ message: 'User created successfully', user });
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating user', error });
+  }
+};
+
+// Update user verification
+exports.updateUserVerification = async (req, res) => {
+  try {
+    const { verified } = req.body;
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.verified = verified;
+    await user.save();
+
+    res.status(200).json({ message: 'User verification updated successfully', user });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating user verification', error });
+  }
+};
+
+// Delete user
+exports.deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findByIdAndDelete(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({ message: 'User deleted successfully', user });
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting user', error });
+  }
+};
+// Update user details
+// Update user details (including password) by admin
+exports.updateUserDetails = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { firstName, lastName, email, usertype, newPassword } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Update user details
+    user.firstName = firstName || user.firstName;
+    user.lastName = lastName || user.lastName;
+    user.email = email || user.email;
+    user.usertype = usertype || user.usertype;
+
+    // Update password if provided
+    if (newPassword) {
+      user.setPassword(newPassword);
+    }
+
+    await user.save();
+
+    res.status(200).json({ message: 'User updated successfully', user });
+  } catch (error) {
+    console.error('Error updating user details:', error);
+    res.status(500).json({ message: 'Internal Server Error', error });
+  }
+};
+
+// Update user password
+exports.updateUserPassword = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if the current password is valid
+    if (!user.validatePassword(currentPassword)) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    // Set new password
+    user.setPassword(newPassword);
+    await user.save();
+
+    res.status(200).json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.status(500).json({ message: 'Internal Server Error', error });
+  }
+};
