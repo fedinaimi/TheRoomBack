@@ -22,11 +22,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000", // Default to localhost if not defined
-    methods: (process.env.CORS_METHODS || "GET,POST,PUT,DELETE,OPTIONS").split(','), // Split methods into an array
+    origin: "https://theroomdash-1.onrender.com", // Update with frontend URL
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   },
 });
-
 
 // Middleware
 app.use(morgan("dev"));
