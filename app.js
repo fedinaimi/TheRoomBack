@@ -32,7 +32,7 @@ const io = new Server(server, {
 app.use(morgan("dev"));
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL, // Render frontend URL
+    origin:'*', // Render frontend URL
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   })
