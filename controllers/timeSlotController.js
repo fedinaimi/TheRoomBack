@@ -301,3 +301,16 @@ exports.toggleAvailability = async (req, res) => {
   }
 };
 
+exports.getTimeSlotsByChapterAndDate = async (req, res) => {
+  try {
+    const { chapterId } = req.params;
+    const { date } = req.query;
+
+    // Example: Filter time slots for the chapter and date (logic can vary)
+    const timeSlots = await TimeSlot.find({ chapterId, date });
+    res.status(200).json(timeSlots);
+  } catch (error) {
+    console.error('Error fetching time slots:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};

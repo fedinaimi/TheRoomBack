@@ -16,66 +16,48 @@ const chapterRoutes = require("./routes/chapterRoutes");
 const timeSlotRoutes = require("./routes/timeSlotRoutes");
 const scenarioRoutes = require("./routes/scenarioRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
-const notificationRoutes = require("./routes/notificationRoutes");
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL, // Frontend URL from .env
+    origin: "*", // Update with frontend URL
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
   },
 });
 
 // Middleware
 app.use(morgan("dev"));
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL, // Render frontend URL
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
-  })
-);
+app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE" }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(helmet());
 app.use((req, res, next) => {
-  console.log(
-    `[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`,
-    req.body
-  );
-  req.io = io; // Attach socket.io instance to requests
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body);
   next();
 });
-
 // Routes
 app.use("/api", userRoutes);
 app.use("/api/chapters", chapterRoutes);
 app.use("/api/timeslots", timeSlotRoutes);
 app.use("/api/scenarios", scenarioRoutes);
 app.use("/api/reservations", reservationRoutes);
-app.use("/api/notifications", notificationRoutes);
+app.use('/api/notifications', notificationRoutes);
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.DB_URL, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => {
-    console.log("MongoDB connected");
-    server.listen(process.env.PORT || 5000, () =>
-      console.log(`Server running on port ${process.env.PORT || 5000}`)
-    );
-  })
-  .catch((err) => console.error("MongoDB connection error:", err));
+// MongoDB connection
+mongoose.connect(process.env.DB_URL, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => {
+  console.log("MongoDB connected");
+  server.listen(5000, () => console.log("Server running on port 5000"));
+}).catch((err) => console.error(err));
 
-// Global Socket.IO Instance
+// Global Socket.IO instance
+global.io = io;
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
-
-  // Custom socket events can go here
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
   });

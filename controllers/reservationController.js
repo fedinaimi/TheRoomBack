@@ -70,8 +70,16 @@ exports.createReservation = async (req, res) => {
     
     await notification.save();
 
-    // Emit real-time notification to all connected clients
-    global.io.emit('reservationCreated', notification);
+    // Attempt to emit real-time notification
+    try {
+      if (global.io) {
+        global.io.emit('reservationCreated', notification);
+      } else {
+        console.warn('Socket.IO is not initialized. Skipping real-time notification.');
+      }
+    } catch (emitError) {
+      console.error('Error emitting Socket.IO event:', emitError);
+    }
 
     // Fetch admin and subadmin emails
     const admins = await User.find({ usertype: { $in: ['admin', 'subadmin'] } }).select('email');

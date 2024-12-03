@@ -18,5 +18,6 @@ router.get('/scenario/:scenarioId', timeSlotController.getAllTimeSlotsByScenario
 router.get('/availability', timeSlotController.getTimeSlotsWithAvailability);
 router.get('/scenario/:scenarioId/week', timeSlotController.getTimeSlotsWithAvailability);
 router.put('/:id/toggle-availability', auth, timeSlotController.toggleAvailability);
+router.get('/chapter/:chapterId/date', timeSlotController.getTimeSlotsByChapterAndDate);
 
 module.exports = router;
