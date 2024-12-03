@@ -18,6 +18,8 @@ const scenarioRoutes = require("./routes/scenarioRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
 const notificationRoutes = require('./routes/notificationRoutes');
 
+
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
