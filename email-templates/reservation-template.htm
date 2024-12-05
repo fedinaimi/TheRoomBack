@@ -1,0 +1,23 @@
+<!-- email-templates/reservation-template.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reservation Confirmation</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #333;">
+  <h1 style="text-align: center; color: #4CAF50;">Reservation Confirmation</h1>
+  <p><strong>Reservation ID:</strong> {{reservationId}}</p>
+  <p><strong>Scenario:</strong> {{scenarioTitle}}</p>
+  <p><strong>Chapter:</strong> {{chapterName}}</p>
+  <p><strong>Time Slot:</strong> {{startTime}} - {{endTime}}</p>
+  <p><strong>Name:</strong> {{customerName}}</p>
+  <p><strong>Email:</strong> {{customerEmail}}</p>
+  <p><strong>Phone:</strong> {{customerPhone}}</p>
+  <p><strong>Language:</strong> {{customerLanguage}}</p>
+  <p><strong>Status:</strong> Pending</p>
+  <p><strong>Reservation Message:</strong> A new reservation has been created. Please approve or decline it.</p>
+  <p>Veuillez patienter l'admin d'accepter votre invitation. Vous recevrez un email une fois approuvé.</p>
+</body>
+</html>

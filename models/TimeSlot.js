@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 
 const timeSlotSchema = new mongoose.Schema({
-  scenario: { type: mongoose.Schema.Types.ObjectId, ref: 'Scenario', required: true },
-  date: { type: String, required: true }, // Date in "YYYY-MM-DD" format
-  startTime: { type: String, required: true }, // e.g., '10:00 AM'
-  endTime: { type: String, required: true },   // e.g., '12:00 PM'
-  isAvailable: { type: Boolean, default: true }, // Whether the slot is available
+  chapter: { type: mongoose.Schema.Types.ObjectId, ref: 'Chapter', required: true },
+  date: { type: String, required: true }, // Format: YYYY-MM-DD
+  startTime: { type: String, required: true }, // Format: HH:mm:ss
+  endTime: { type: String, required: true },   // Format: HH:mm:ss
+  isAvailable: { type: Boolean, default: true },
 });
 
 module.exports = mongoose.model('TimeSlot', timeSlotSchema);

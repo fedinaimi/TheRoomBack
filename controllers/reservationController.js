@@ -3,41 +3,12 @@ const TimeSlot = require('../models/TimeSlot');
 const sendEmail = require('../utils/sendEmail');
 const Notification = require('../models/Notifications');
 const User = require('../models/User'); // Import the User model
-// Create a new reservation (no login required)
-/*
-exports.createReservation = async (req, res) => {
-  try {
-    const { scenarioId, chapterId, timeSlotId, name, email, phone, language } = req.body;
-
-    const timeSlot = await TimeSlot.findById(timeSlotId);
-    if (!timeSlot || !timeSlot.isAvailable) {
-      return res.status(400).json({ message: 'Selected time slot is not available' });
-    }
-
-    const reservation = new Reservation({
-      scenario: scenarioId,
-      chapter: chapterId,
-      timeSlot: timeSlotId,
-      name,
-      email,
-      phone,
-      language,
-    });
-    await reservation.save();
-
-    // Mark the time slot as unavailable
-    timeSlot.isAvailable = false;
-    await timeSlot.save();
-
-    res.status(201).json({ message: 'Reservation created successfully', reservation });
-  } catch (error) {
-    console.error('Error creating reservation:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-};
-*/
+const { format } = require('date-fns'); // Use date-fns to format dates
 
 
+
+
+// Create a new reservation
 exports.createReservation = async (req, res) => {
   try {
     const { scenario, chapter, timeSlot, name, email, phone, language } = req.body;
@@ -61,41 +32,83 @@ exports.createReservation = async (req, res) => {
     timeSlotData.isAvailable = false;
     await timeSlotData.save();
 
-    // Create a notification
+    // Populate the reservation with scenario and chapter names
+    const populatedReservation = await Reservation.findById(reservation._id)
+      .populate('scenario')
+      .populate('chapter');
+
+    // Format the date and time
+    const formattedStartTime = new Date(timeSlotData.startTime).toLocaleString("en-US", {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
+    });
+
+    const formattedEndTime = new Date(timeSlotData.endTime).toLocaleString("en-US", {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
+    });
+
+    const createdAt = new Date(reservation.createdAt).toLocaleString("en-US", {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
+    });
+
+    // Create a notification for the reservation
     const notification = new Notification({
       message: `New reservation by ${name}`,
       reservationId: reservation._id,
-      details: `Reservation for scenario: ${scenario}, chapter: ${chapter}, time slot: ${timeSlot}.`,
+      details: `Reservation for scenario: ${populatedReservation.scenario.title}, chapter: ${populatedReservation.chapter.name}, time slot: ${formattedStartTime} - ${formattedEndTime}.`,
     });
-    
     await notification.save();
 
-    // Attempt to emit real-time notification
-    try {
-      if (global.io) {
-        global.io.emit('reservationCreated', notification);
-      } else {
-        console.warn('Socket.IO is not initialized. Skipping real-time notification.');
-      }
-    } catch (emitError) {
-      console.error('Error emitting Socket.IO event:', emitError);
-    }
-
-    // Fetch admin and subadmin emails
+    // Send email notifications to admin
     const admins = await User.find({ usertype: { $in: ['admin', 'subadmin'] } }).select('email');
     const adminEmails = admins.map((admin) => admin.email);
 
-    // Send email notifications
+    // HTML Email template for admins and customer
     const emailContent = `
-      <h3>New Reservation Created</h3>
-      <p><strong>Name:</strong> ${name}</p>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Phone:</strong> ${phone}</p>
-      <p><strong>Language:</strong> ${language || 'Not specified'}</p>
+      <html>
+        <head><title>Reservation Details</title></head>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+          <h1 style="text-align: center; color: #4CAF50;">Reservation Confirmation</h1>
+          <p><strong>Reservation ID:</strong> ${reservation._id}</p>
+          <p><strong>Chapter:</strong> ${populatedReservation.chapter.name}</p>
+          <p><strong>Time Slot:</strong> ${formattedStartTime} - ${formattedEndTime}</p>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          <p><strong>Language:</strong> ${language || 'Not specified'}</p>
+          <p><strong>Status:</strong> Pending</p>
+          <p><strong>Created At:</strong> ${createdAt}</p>
+          <p><strong>Reservation Message:</strong> A new reservation has been created. Please approve or decline it.</p>
+        </body>
+      </html>
     `;
+
+    // Send email to all admins
     for (const adminEmail of adminEmails) {
       await sendEmail(adminEmail, 'New Reservation Created', emailContent);
     }
+
+    // Send confirmation email to the customer
+    const customerEmailContent = `
+      <html>
+        <head><title>Your Reservation</title></head>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+          <h1 style="text-align: center; color: #4CAF50;">Your Reservation Has Been Received</h1>
+          <p><strong>Reservation ID:</strong> ${reservation._id}</p>
+          <p><strong>Chapter:</strong> ${populatedReservation.chapter.name}</p>
+          <p><strong>Time Slot:</strong> ${formattedStartTime} - ${formattedEndTime}</p>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          <p><strong>Language:</strong> ${language || 'Not specified'}</p>
+          <p><strong>Status:</strong> Pending</p>
+          <p><strong>Created At:</strong> ${createdAt}</p>
+          <p>Veuillez patienter l'admin d'accepter votre invitation. Vous recevrez un email une fois approuvé.</p>
+        </body>
+      </html>
+    `;
+
+    // Send the confirmation email to the customer
+    await sendEmail(email, 'Reservation Confirmation', customerEmailContent);
 
     res.status(201).json({ message: 'Reservation created successfully', reservation });
   } catch (error) {
@@ -108,18 +121,33 @@ exports.createReservation = async (req, res) => {
 
 
 // Get all reservations (admin)
+
 exports.getAllReservations = async (req, res) => {
   try {
     const reservations = await Reservation.find()
       .populate('scenario')
       .populate('chapter')
       .populate('timeSlot');
-    res.status(200).json(reservations);
+
+    // Format dates
+    const formattedReservations = reservations.map(reservation => {
+      reservation.createdAtFormatted = format(new Date(reservation.createdAt), 'yyyy-MM-dd HH:mm:ss');
+      if (reservation.timeSlot) {
+        reservation.timeSlot.startTimeFormatted = format(new Date(reservation.timeSlot.startTime), 'yyyy-MM-dd HH:mm:ss');
+        reservation.timeSlot.endTimeFormatted = format(new Date(reservation.timeSlot.endTime), 'yyyy-MM-dd HH:mm:ss');
+      }
+      return reservation;
+    });
+
+    res.status(200).json(formattedReservations);
   } catch (error) {
     console.error('Error fetching reservations:', error);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
+
+
 
 // Update reservation status (admin)
 exports.updateReservationStatus = async (req, res) => {

@@ -1,22 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const chapterController = require('../controllers/chapterController');
-const auth = require('../middlewares/auth'); // Import the auth middleware
+const auth = require('../middlewares/auth'); // Authentication middleware
+const multerConfig = require('../middlewares/multer-config'); // Multer configuration
 
-// Create a chapter (admin)
-router.post('/', auth, chapterController.createChapter);
+// Create Chapter
+router.post(
+  '/',
+  multerConfig.fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }]),
+  chapterController.createChapter
+);
 
-// Get all chapters (no authentication needed)
+// Update Chapter
+router.put(
+  '/:id',
+  auth,
+  multerConfig.fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }]),
+  chapterController.updateChapter
+);
+
+// Get All Chapters
 router.get('/', chapterController.getAllChapters);
 
-// Get chapter by ID (no authentication needed)
+// Get Chapter by ID
 router.get('/:id', chapterController.getChapterById);
+router.delete('/:id', chapterController.deleteChapter);
 
-// Update a chapter (admin)
-router.put('/:id', auth, chapterController.updateChapter);
-
-// Delete a chapter (admin)
-router.delete('/:id', auth, chapterController.deleteChapter);
-router.get('/chapter/:id/scenario', chapterController.getScenarioFromChapter); // Define the route
-// /chapters/67166ce658e1a7f007d0ee32/scenario
 module.exports = router;

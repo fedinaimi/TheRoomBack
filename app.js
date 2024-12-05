@@ -29,6 +29,17 @@ const io = new Server(server, {
   },
 });
 
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    // Multer-specific errors
+    return res.status(400).json({ message: err.message });
+  } else if (err) {
+    // Other errors
+    return res.status(500).json({ message: err.message });
+  }
+  next();
+});
+
 // Middleware
 app.use(morgan("dev"));
 app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE" }));
