@@ -90,7 +90,7 @@ exports.createReservation = async (req, res) => {
     // Send confirmation email to the customer
     const customerEmailContent = `
       <html>
-        <head><title>Your Reservation</title></head>
+        <head><title>Your Reservation Status</title></head>
         <body style="font-family: Arial, sans-serif; color: #333;">
           <h1 style="text-align: center; color: #4CAF50;">Your Reservation Has Been Received</h1>
           <p><strong>Reservation ID:</strong> ${reservation._id}</p>
@@ -102,13 +102,13 @@ exports.createReservation = async (req, res) => {
           <p><strong>Language:</strong> ${language || 'Not specified'}</p>
           <p><strong>Status:</strong> Pending</p>
           <p><strong>Created At:</strong> ${createdAt}</p>
-          <p>Veuillez patienter l'admin d'accepter votre invitation. Vous recevrez un email une fois approuvé.</p>
-        </body>
+         <p style="color: red;">Veuillez patienter l'admin d'accepter votre invitation. Vous recevrez un email une fois approuvé.</p>
+
       </html>
     `;
 
     // Send the confirmation email to the customer
-    await sendEmail(email, 'Reservation Confirmation', customerEmailContent);
+    await sendEmail(email, 'TheRoom Reservation ', customerEmailContent);
 
     res.status(201).json({ message: 'Reservation created successfully', reservation });
   } catch (error) {

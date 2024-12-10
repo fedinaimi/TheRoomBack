@@ -5,6 +5,8 @@ const ChapterSchema = new mongoose.Schema({
   image: { type: String },
   video: { type: String },
   playerNumber: { type: Number, required: true },
+  minPlayerNumber: { type: Number, required: true }, // Add this
+  maxPlayerNumber: { type: Number, required: true }, // Add this
   time: { type: Number, required: true },
   difficulty: { type: String, required: true },
   description: { type: String },
