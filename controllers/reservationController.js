@@ -164,12 +164,44 @@ exports.updateReservationStatus = async (req, res) => {
     const timeSlot = reservation.timeSlot;
 
     if (status === 'approved') {
-      const emailContent = `Dear ${reservation.name}, your reservation has been approved.`;
+      const emailContent = `
+        <html>
+          <head><title>Reservation Approved</title></head>
+          <body style="font-family: Arial, sans-serif; color: #333;">
+            <h1 style="text-align: center; color: #4CAF50;">Your Reservation Has Been Approved</h1>
+            <p>Dear ${reservation.name},</p>
+            <p>We are pleased to inform you that your reservation has been approved.</p>
+            <p><strong>Reservation Details:</strong></p>
+            <ul>
+              <li><strong>Reservation ID:</strong> ${reservation._id}</li>
+              <li><strong>Time Slot:</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+              <li><strong>Status:</strong> Approved</li>
+            </ul>
+            <p>Thank you for choosing our service!</p>
+          </body>
+        </html>
+      `;
       await sendEmail(reservation.email, 'Reservation Approved', emailContent);
     } else if (status === 'declined') {
       timeSlot.isAvailable = true;
       await timeSlot.save();
-      const emailContent = `Dear ${reservation.name}, your reservation has been declined. Please choose another time slot.`;
+      const emailContent = `
+        <html>
+          <head><title>Reservation Declined</title></head>
+          <body style="font-family: Arial, sans-serif; color: #333;">
+            <h1 style="text-align: center; color: #FF5733;">Your Reservation Has Been Declined</h1>
+            <p>Dear ${reservation.name},</p>
+            <p>We regret to inform you that your reservation has been declined.</p>
+            <p>Please choose another time slot and try again.</p>
+            <p><strong>Reservation Details:</strong></p>
+            <ul>
+              <li><strong>Reservation ID:</strong> ${reservation._id}</li>
+              <li><strong>Requested Time Slot:</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+              <li><strong>Status:</strong> Declined</li>
+            </ul>
+          </body>
+        </html>
+      `;
       await sendEmail(reservation.email, 'Reservation Declined', emailContent);
     }
 
@@ -179,6 +211,7 @@ exports.updateReservationStatus = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
 exports.deleteReservation = async (req, res) => {
   try {
     const reservation = await Reservation.findByIdAndDelete(req.params.id);

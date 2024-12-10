@@ -39,6 +39,7 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+app.use(cors());
 
 // Middleware
 app.use(morgan("dev"));
