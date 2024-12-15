@@ -60,7 +60,6 @@ exports.createTimeSlots = async (req, res) => {
     }
 
     // Log generated slots
-    console.log(`Generated ${timeSlotsData.length} time slots for chapter ${chapterId}`);
 
     // Insert time slots into the database
     const timeSlots = await TimeSlot.insertMany(timeSlotsData);
@@ -129,13 +128,35 @@ exports.getAllTimeSlotsByScenario = async (req, res) => {
 exports.getTimeSlotsByDate = async (req, res) => {
   try {
     const { chapterId, date } = req.query;
-    const timeSlots = await TimeSlot.find({ chapter: chapterId, date, isAvailable: true });
+
+    // Validate input
+    if (!chapterId || !date) {
+      return res.status(400).json({ message: 'Chapter ID and date are required.' });
+    }
+
+    console.log(`Fetching time slots for Chapter ID: ${chapterId}, Date: ${date}`);
+
+    // Fetch time slots from the database
+    const timeSlots = await TimeSlot.find({ chapter: chapterId, date }).lean();
+
+    // Handle case where no time slots exist for the chapter
+    if (!timeSlots || timeSlots.length === 0) {
+      console.warn(`No time slots found for Chapter ID: ${chapterId} on Date: ${date}`);
+      return res.status(200).json([]); // Return an empty array
+    }
+
+    console.log(`Found ${timeSlots.length} time slot(s) for Chapter ID: ${chapterId}, Date: ${date}`);
     res.status(200).json(timeSlots);
   } catch (error) {
-    console.error('Error fetching time slots:', error);
+    console.error('Error fetching time slots by date:', error);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
+
+
+
+
 
 /*
 
@@ -251,9 +272,8 @@ exports.toggleAvailability = async (req, res) => {
     const { id } = req.params;
     const { isAvailable } = req.body;
 
-    // Log incoming data for debugging
-    console.log('Request Params:', req.params);
-    console.log('Request Body:', req.body);
+    
+
 
     // Validate the inputs
     if (!id || typeof isAvailable !== 'boolean') {
@@ -287,21 +307,17 @@ exports.toggleAvailability = async (req, res) => {
 // timeSlotController.js
 exports.getTimeSlotsByChapterAndDate = async (req, res) => {
   try {
-    console.log('Received Query:', req.query); // Debugging
 
     const { chapterId, date } = req.query;
 
     if (!chapterId || !date) {
-      console.log('Validation Error: Missing chapterId or date');
       return res.status(400).json({ message: 'Chapter ID and date are required.' });
     }
 
     const timeSlots = await TimeSlot.find({ chapter: chapterId, date }).lean();
 
-    console.log('Query Result:', timeSlots); // Debugging
 
     if (!timeSlots.length) {
-      console.log('No time slots found for:', { chapterId, date });
       return res.status(404).json({ message: 'No time slots found for the given chapter and date.' });
     }
 
