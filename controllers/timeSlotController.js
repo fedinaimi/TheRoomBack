@@ -5,70 +5,63 @@ const mongoose = require('mongoose');
 // Create time slots for a scenario on a specific date (admin)
 
 
+
+
 exports.createTimeSlots = async (req, res) => {
   try {
-    const { chapterId, dateRange, weekdayTime, weekendTime } = req.body;
+    const { chapterId, dateRange, weekdayTime } = req.body;
 
-    // Validate input
     if (!chapterId || !dateRange || !dateRange.from || !dateRange.to) {
-      return res.status(400).json({ message: 'Invalid data: chapterId and dateRange are required.' });
+      return res.status(400).json({ message: 'Chapter ID and date range are required.' });
     }
 
     const startDate = new Date(dateRange.from);
     const endDate = new Date(dateRange.to);
     if (startDate > endDate) {
-      return res.status(400).json({ message: '"from" date cannot be later than "to" date.' });
+      return res.status(400).json({ message: '"From" date cannot be later than "To" date.' });
     }
 
-    if (
-      !weekdayTime.startTime || !weekdayTime.endTime ||
-      !weekendTime.startTime || !weekendTime.endTime
-    ) {
-      return res.status(400).json({ message: 'Invalid data: Missing time ranges for weekday or weekend.' });
+    if (!weekdayTime.startTime || !weekdayTime.endTime) {
+      return res.status(400).json({ message: 'Time range for days is required.' });
     }
 
-    const slotDuration = 90; // Duration in minutes (1h30)
-    const timeSlotsData = [];
+    const slotDuration = 90; // 90 minutes per time slot
+    const timeSlots = [];
 
-    // Loop through each day in the range
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const currentDate = d.toISOString().split('T')[0];
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-
-      const startTime = isWeekend ? weekendTime.startTime : weekdayTime.startTime;
-      const endTime = isWeekend ? weekendTime.endTime : weekdayTime.endTime;
-
-      const start = new Date(`${currentDate}T${startTime}:00`);
-      const end = new Date(`${currentDate}T${endTime}:00`);
+      const start = new Date(`${currentDate}T${weekdayTime.startTime}:00`);
+      const end = new Date(`${currentDate}T${weekdayTime.endTime}:00`);
 
       let currentSlotStart = start;
+
       while (currentSlotStart < end) {
         const currentSlotEnd = new Date(currentSlotStart.getTime() + slotDuration * 60 * 1000);
 
         if (currentSlotEnd > end) break;
 
-        timeSlotsData.push({
+        timeSlots.push({
           chapter: chapterId,
           date: currentDate,
           startTime: currentSlotStart.toISOString(),
           endTime: currentSlotEnd.toISOString(),
           isAvailable: true,
+          status: 'available',
         });
 
-        currentSlotStart = currentSlotEnd; // Move to the next slot
+        currentSlotStart = currentSlotEnd;
       }
     }
 
-    // Log generated slots
+    const createdTimeSlots = await TimeSlot.insertMany(timeSlots);
 
-    // Insert time slots into the database
-    const timeSlots = await TimeSlot.insertMany(timeSlotsData);
-    res.status(201).json({ message: 'Time slots created successfully', timeSlots });
+    res.status(201).json({ message: 'Time slots created successfully.', timeSlots: createdTimeSlots });
   } catch (error) {
     console.error('Error creating time slots:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    res.status(500).json({ message: 'Internal server error.' });
   }
 };
+
 
 
 
@@ -307,21 +300,51 @@ exports.toggleAvailability = async (req, res) => {
 // timeSlotController.js
 exports.getTimeSlotsByChapterAndDate = async (req, res) => {
   try {
-
     const { chapterId, date } = req.query;
 
     if (!chapterId || !date) {
       return res.status(400).json({ message: 'Chapter ID and date are required.' });
     }
 
+    // Fetch all time slots for the chapter and date
     const timeSlots = await TimeSlot.find({ chapter: chapterId, date }).lean();
 
-
     if (!timeSlots.length) {
-      return res.status(404).json({ message: 'No time slots found for the given chapter and date.' });
+      return res.status(200).json([]); // Return an empty array if no slots are found
     }
 
-    res.status(200).json(timeSlots);
+    // Fetch all reservations for the time slots
+    const reservations = await Reservation.find({
+      timeSlot: { $in: timeSlots.map(slot => slot._id) },
+    }).lean();
+
+    // Map reservations to time slots
+    const reservationStatusMap = {};
+    reservations.forEach((reservation) => {
+      const slotId = reservation.timeSlot.toString();
+      if (!reservationStatusMap[slotId]) {
+        reservationStatusMap[slotId] = reservation.status;
+      } else if (reservation.status === 'approved') {
+        reservationStatusMap[slotId] = 'approved'; // Prioritize approved reservations
+      }
+    });
+
+    // Add status to time slots
+    const updatedTimeSlots = timeSlots.map((slot) => {
+      const reservationStatus = reservationStatusMap[slot._id.toString()] || null;
+      if (!slot.isAvailable) {
+        slot.status = 'unavailable';
+      } else if (reservationStatus === 'approved') {
+        slot.status = 'booked';
+      } else if (reservationStatus === 'pending') {
+        slot.status = 'pending';
+      } else {
+        slot.status = 'available';
+      }
+      return slot;
+    });
+
+    res.status(200).json(updatedTimeSlots);
   } catch (error) {
     console.error('Error in getTimeSlotsByChapterAndDate:', error);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -410,5 +433,24 @@ exports.enableTimeSlotsForDay = async (req, res) => {
   } catch (error) {
     console.error('Error enabling time slots for day:', error);
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+exports.disableTimeSlotsForScenarios = async (req, res) => {
+  try {
+    const { scenarioIds } = req.body;
+
+    if (!scenarioIds || scenarioIds.length === 0) {
+      return res.status(400).json({ message: "No scenarios selected." });
+    }
+
+    await TimeSlot.updateMany(
+      { chapter: { $in: scenarioIds }, isAvailable: true },
+      { $set: { isAvailable: false, status: "disabled" } }
+    );
+
+    res.status(200).json({ message: "Schedules disabled successfully." });
+  } catch (error) {
+    console.error("Error disabling schedules:", error);
+    res.status(500).json({ message: "Internal server error." });
   }
 };

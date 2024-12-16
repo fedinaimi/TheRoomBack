@@ -5,141 +5,165 @@ const Notification = require('../models/Notifications');
 const User = require('../models/User'); // Import the User model
 const { format } = require('date-fns'); // Use date-fns to format dates
 
+const ApprovedReservation = require("../models/ApprovedReservation");
+const DeclinedReservation = require("../models/DeclinedReservation");
 
 
 
-// Create a new reservation
 exports.createReservation = async (req, res) => {
   try {
     const { scenario, chapter, timeSlot, name, email, phone, language } = req.body;
 
     // Validate required fields
     if (!scenario || !chapter || !timeSlot || !name || !email || !phone) {
-      return res.status(400).json({ message: 'All fields are required: scenario, chapter, timeSlot, name, email, and phone.' });
+      return res.status(400).json({
+        message: "Tous les champs sont obligatoires : scénario, chapitre, créneau horaire, nom, email et téléphone.",
+      });
     }
 
     // Check if the time slot exists and is available
     const timeSlotData = await TimeSlot.findById(timeSlot);
-    if (!timeSlotData || !timeSlotData.isAvailable) {
-      return res.status(400).json({ message: 'Time slot not available or does not exist.' });
+    if (!timeSlotData) {
+      return res.status(404).json({ message: "Le créneau horaire n'existe pas." });
+    }
+
+    if (timeSlotData.status === "booked" || timeSlotData.status === "unavailable") {
+      return res.status(400).json({ message: "Le créneau horaire est déjà réservé ou indisponible." });
+    }
+
+    // Get today's date range
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // Check if the user already has 3 reservations for different scenarios today
+    const approvedReservationsToday = await ApprovedReservation.find({
+      phone,
+      email,
+      createdAt: { $gte: todayStart, $lte: todayEnd },
+    });
+
+    if (approvedReservationsToday.length >= 3) {
+      return res.status(400).json({
+        message: "Vous ne pouvez effectuer qu'un maximum de 3 réservations par jour pour des scénarios différents.",
+      });
+    }
+
+    // Check if the user already has an approved reservation for the same scenario today
+    const scenarioReservationToday = await ApprovedReservation.findOne({
+      phone,
+      email,
+      scenario,
+      createdAt: { $gte: todayStart, $lte: todayEnd },
+    });
+
+    if (scenarioReservationToday) {
+      return res.status(400).json({
+        message: "Vous ne pouvez réserver qu'un seul créneau pour ce scénario par jour.",
+      });
+    }
+
+    // Check if the user has a declined reservation for the same time slot (allow re-reservation)
+    const declinedReservation = await DeclinedReservation.findOne({
+      phone,
+      email,
+      timeSlot,
+    });
+
+    if (declinedReservation) {
+      console.log("Reservation previously declined. Proceeding with new reservation.");
     }
 
     // Create a new reservation
-    const reservation = new Reservation({ scenario, chapter, timeSlot, name, email, phone, language });
+    const reservation = new Reservation({
+      scenario,
+      chapter,
+      timeSlot,
+      name,
+      email,
+      phone,
+      language,
+    });
     await reservation.save();
 
-    // Mark time slot as unavailable
-    timeSlotData.isAvailable = false;
+    // Update the time slot status to "pending"
+    timeSlotData.status = "pending"; // Set the time slot status to pending
     await timeSlotData.save();
 
     // Populate the reservation with scenario and chapter names
     const populatedReservation = await Reservation.findById(reservation._id)
-      .populate('scenario')
-      .populate('chapter');
-
-    // Format the date and time
-    const formattedStartTime = new Date(timeSlotData.startTime).toLocaleString("en-US", {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
-    });
-
-    const formattedEndTime = new Date(timeSlotData.endTime).toLocaleString("en-US", {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
-    });
-
-    const createdAt = new Date(reservation.createdAt).toLocaleString("en-US", {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true
-    });
+      .populate("scenario")
+      .populate("chapter");
 
     // Create a notification for the reservation
     const notification = new Notification({
-      message: `New reservation by ${name}`,
+      message: `Nouvelle réservation par ${name}`,
       reservationId: reservation._id,
-      details: `Reservation for scenario: ${populatedReservation.scenario.title}, chapter: ${populatedReservation.chapter.name}, time slot: ${formattedStartTime} - ${formattedEndTime}.`,
+      details: `Réservation pour le scénario : ${populatedReservation.scenario.title}, chapitre : ${populatedReservation.chapter.name}.`,
     });
     await notification.save();
-
-    // Send email notifications to admin
-    const admins = await User.find({ usertype: { $in: ['admin', 'subadmin'] } }).select('email');
-    const adminEmails = admins.map((admin) => admin.email);
-
-    // HTML Email template for admins and customer
-    const emailContent = `
-      <html>
-        <head><title>Reservation Details</title></head>
-        <body style="font-family: Arial, sans-serif; color: #333;">
-          <h1 style="text-align: center; color: #4CAF50;">Reservation Confirmation</h1>
-          <p><strong>Reservation ID:</strong> ${reservation._id}</p>
-          <p><strong>Chapter:</strong> ${populatedReservation.chapter.name}</p>
-          <p><strong>Time Slot:</strong> ${formattedStartTime} - ${formattedEndTime}</p>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Phone:</strong> ${phone}</p>
-          <p><strong>Language:</strong> ${language || 'Not specified'}</p>
-          <p><strong>Status:</strong> Pending</p>
-          <p><strong>Created At:</strong> ${createdAt}</p>
-          <p><strong>Reservation Message:</strong> A new reservation has been created. Please approve or decline it.</p>
-        </body>
-      </html>
-    `;
-
-    // Send email to all admins
-    for (const adminEmail of adminEmails) {
-      await sendEmail(adminEmail, 'New Reservation Created', emailContent);
-    }
 
     // Send confirmation email to the customer
     const customerEmailContent = `
       <html>
-        <head><title>Your Reservation Status</title></head>
+        <head><title>Statut de votre réservation</title></head>
         <body style="font-family: Arial, sans-serif; color: #333;">
-          <h1 style="text-align: center; color: #4CAF50;">Your Reservation Has Been Received</h1>
-          <p><strong>Reservation ID:</strong> ${reservation._id}</p>
-          <p><strong>Chapter:</strong> ${populatedReservation.chapter.name}</p>
-          <p><strong>Time Slot:</strong> ${formattedStartTime} - ${formattedEndTime}</p>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Phone:</strong> ${phone}</p>
-          <p><strong>Language:</strong> ${language || 'Not specified'}</p>
-          <p><strong>Status:</strong> Pending</p>
-          <p><strong>Created At:</strong> ${createdAt}</p>
-         <p style="color: red;">Veuillez patienter l'admin d'accepter votre invitation. Vous recevrez un email une fois approuvé.</p>
-
+          <h1 style="text-align: center; color: #4CAF50;">Votre réservation a été reçue</h1>
+          <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+          <p><strong>Chapitre :</strong> ${populatedReservation.chapter.name}</p>
+          <p><strong>Créneau horaire :</strong> ${new Date(timeSlotData.startTime).toLocaleString()} - ${new Date(timeSlotData.endTime).toLocaleString()}</p>
+          <p><strong>Nom :</strong> ${name}</p>
+          <p><strong>Email :</strong> ${email}</p>
+          <p><strong>Téléphone :</strong> ${phone}</p>
+          <p><strong>Langue :</strong> ${language || "Non spécifiée"}</p>
+          <p style="color: red;">Veuillez patienter que l'admin approuve votre réservation. Vous recevrez un email une fois approuvée.</p>
+        </body>
       </html>
     `;
 
-    // Send the confirmation email to the customer
-    await sendEmail(email, 'TheRoom Reservation ', customerEmailContent);
+    await sendEmail(email, "Réservation TheRoom", customerEmailContent);
 
-    res.status(201).json({ message: 'Reservation created successfully', reservation });
+    res.status(201).json({ message: "Votre réservation a été créée avec succès.", reservation });
   } catch (error) {
-    console.error('Error creating reservation:', error.message || error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    console.error("Erreur lors de la création de la réservation :", error.message || error);
+    res.status(500).json({ message: "Erreur interne du serveur. Veuillez réessayer plus tard." });
   }
 };
 
 
 
 
+
+
+
 // Get all reservations (admin)
+
 
 exports.getAllReservations = async (req, res) => {
   try {
+    // Fetch data from all collections
     const reservations = await Reservation.find()
       .populate('scenario')
       .populate('chapter')
       .populate('timeSlot');
 
-    // Format dates
-    const formattedReservations = reservations.map(reservation => {
-      reservation.createdAtFormatted = format(new Date(reservation.createdAt), 'yyyy-MM-dd HH:mm:ss');
-      if (reservation.timeSlot) {
-        reservation.timeSlot.startTimeFormatted = format(new Date(reservation.timeSlot.startTime), 'yyyy-MM-dd HH:mm:ss');
-        reservation.timeSlot.endTimeFormatted = format(new Date(reservation.timeSlot.endTime), 'yyyy-MM-dd HH:mm:ss');
-      }
-      return reservation;
-    });
+    const approvedReservations = await ApprovedReservation.find()
+      .populate('scenario')
+      .populate('chapter')
+      .populate('timeSlot');
 
-    res.status(200).json(formattedReservations);
+    const declinedReservations = await DeclinedReservation.find()
+      .populate('scenario')
+      .populate('chapter')
+      .populate('timeSlot');
+
+    // Send data grouped by collection
+    res.status(200).json({
+      reservations,
+      approvedReservations,
+      declinedReservations,
+    });
   } catch (error) {
     console.error('Error fetching reservations:', error);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -149,28 +173,58 @@ exports.getAllReservations = async (req, res) => {
 
 
 
-// Update reservation status (admin)
+
+
 exports.updateReservationStatus = async (req, res) => {
   try {
     const { status } = req.body; // 'approved' or 'declined'
-    const reservation = await Reservation.findById(req.params.id).populate('timeSlot');
-    if (!reservation) {
-      return res.status(404).json({ message: 'Reservation not found' });
+    const { source, reservationId } = req.params; // Source and ID of the reservation
+
+    // Fetch the reservation based on source
+    let reservation;
+    if (source === "reservations") {
+      reservation = await Reservation.findById(reservationId).populate("timeSlot");
+    } else if (source === "approvedReservations") {
+      reservation = await ApprovedReservation.findById(reservationId).populate("timeSlot");
+    } else if (source === "declinedReservations") {
+      reservation = await DeclinedReservation.findById(reservationId).populate("timeSlot");
+    } else {
+      return res.status(400).json({ message: "Invalid source specified." });
     }
 
-    reservation.status = status;
-    await reservation.save();
+    // Validate if reservation exists
+    if (!reservation) {
+      return res.status(404).json({ message: "Reservation not found." });
+    }
 
     const timeSlot = reservation.timeSlot;
 
-    if (status === 'approved') {
+    // Validate if time slot exists
+    if (!timeSlot) {
+      return res.status(400).json({ message: "Time slot not found for this reservation." });
+    }
+
+    if (status === "approved") {
+      // Move to ApprovedReservation collection
+      const approvedReservation = new ApprovedReservation({
+        ...reservation.toObject(),
+        status: "approved",
+      });
+      await approvedReservation.save();
+
+      // Update time slot to "booked"
+      timeSlot.status = "booked";
+      timeSlot.isAvailable = false;
+      await timeSlot.save();
+
+      // Send approval email
       const emailContent = `
         <html>
           <head><title>Reservation Approved</title></head>
           <body style="font-family: Arial, sans-serif; color: #333;">
             <h1 style="text-align: center; color: #4CAF50;">Your Reservation Has Been Approved</h1>
             <p>Dear ${reservation.name},</p>
-            <p>We are pleased to inform you that your reservation has been approved.</p>
+            <p>Your reservation has been successfully approved.</p>
             <p><strong>Reservation Details:</strong></p>
             <ul>
               <li><strong>Reservation ID:</strong> ${reservation._id}</li>
@@ -181,49 +235,115 @@ exports.updateReservationStatus = async (req, res) => {
           </body>
         </html>
       `;
-      await sendEmail(reservation.email, 'Reservation Approved', emailContent);
-    } else if (status === 'declined') {
+      await sendEmail(reservation.email, "Reservation Approved", emailContent);
+
+      // Remove the reservation from the original source
+      if (source === "declinedReservations") {
+        await DeclinedReservation.findByIdAndDelete(reservationId);
+      } else {
+        await Reservation.findByIdAndDelete(reservationId);
+      }
+    } else if (status === "declined") {
+      // Move to DeclinedReservation collection
+      const declinedReservation = new DeclinedReservation({
+        ...reservation.toObject(),
+        status: "declined",
+      });
+      await declinedReservation.save();
+
+      // Update time slot to "available"
+      timeSlot.status = "available";
       timeSlot.isAvailable = true;
       await timeSlot.save();
-      const emailContent = `
-        <html>
-          <head><title>Reservation Declined</title></head>
-          <body style="font-family: Arial, sans-serif; color: #333;">
-            <h1 style="text-align: center; color: #FF5733;">Your Reservation Has Been Declined</h1>
-            <p>Dear ${reservation.name},</p>
-            <p>We regret to inform you that your reservation has been declined.</p>
-            <p>Please choose another time slot and try again.</p>
-            <p><strong>Reservation Details:</strong></p>
-            <ul>
-              <li><strong>Reservation ID:</strong> ${reservation._id}</li>
-              <li><strong>Requested Time Slot:</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
-              <li><strong>Status:</strong> Declined</li>
-            </ul>
-          </body>
-        </html>
-      `;
-      await sendEmail(reservation.email, 'Reservation Declined', emailContent);
+
+      // Send decline email
+      const emailContent =
+        source === "approvedReservations"
+          ? `
+          <html>
+            <head><title>Reservation Declined</title></head>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+              <h1 style="text-align: center; color: #FF5733;">Reservation Declined Due to Technical Issues</h1>
+              <p>Dear ${reservation.name},</p>
+              <p>We regret to inform you that your reservation has been declined due to unforeseen technical issues.</p>
+              <p>We apologize for the inconvenience caused.</p>
+              <p><strong>Reservation Details:</strong></p>
+              <ul>
+                <li><strong>Reservation ID:</strong> ${reservation._id}</li>
+                <li><strong>Time Slot:</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+                <li><strong>Status:</strong> Declined</li>
+              </ul>
+            </body>
+          </html>
+        `
+          : `
+          <html>
+            <head><title>Reservation Declined</title></head>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+              <h1 style="text-align: center; color: #FF5733;">Reservation Declined</h1>
+              <p>Dear ${reservation.name},</p>
+              <p>Your reservation has been declined.</p>
+              <p>Please choose another time slot and try again.</p>
+              <p><strong>Reservation Details:</strong></p>
+              <ul>
+                <li><strong>Reservation ID:</strong> ${reservation._id}</li>
+                <li><strong>Time Slot:</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+                <li><strong>Status:</strong> Declined</li>
+              </ul>
+            </body>
+          </html>
+        `;
+      await sendEmail(reservation.email, "Reservation Declined", emailContent);
+
+      // Remove the reservation from the original source
+      if (source === "approvedReservations") {
+        await ApprovedReservation.findByIdAndDelete(reservationId);
+      } else {
+        await Reservation.findByIdAndDelete(reservationId);
+      }
+    } else {
+      return res.status(400).json({ message: "Invalid status. Use 'approved' or 'declined'." });
     }
 
-    res.status(200).json({ message: 'Reservation status updated successfully', reservation });
+    res.status(200).json({ message: "Reservation status updated successfully." });
   } catch (error) {
-    console.error('Error updating reservation status:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    console.error("Error updating reservation status:", error);
+    res.status(500).json({ message: "Internal Server Error." });
   }
 };
 
 exports.deleteReservation = async (req, res) => {
+  const { source, reservationId } = req.params;
+
+  if (!source || !reservationId) {
+    return res.status(400).json({ message: "Source or reservation ID is missing." });
+  }
+
   try {
-    const reservation = await Reservation.findByIdAndDelete(req.params.id);
-    if (!reservation) {
-      return res.status(404).json({ message: 'Reservation not found' });
+    let deletedReservation;
+
+    // Check the source and delete from the respective schema
+    if (source === "reservations") {
+      deletedReservation = await Reservation.findByIdAndDelete(reservationId);
+    } else if (source === "approvedReservations") {
+      deletedReservation = await ApprovedReservation.findByIdAndDelete(reservationId);
+    } else if (source === "declinedReservations") {
+      deletedReservation = await DeclinedReservation.findByIdAndDelete(reservationId);
+    } else {
+      return res.status(400).json({ message: "Invalid source specified." });
     }
-    res.status(200).json({ message: 'Reservation deleted successfully' });
+
+    if (!deletedReservation) {
+      return res.status(404).json({ message: "Reservation not found." });
+    }
+
+    res.status(200).json({ message: "Reservation deleted successfully." });
   } catch (error) {
-    console.error('Error deleting reservation:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    console.error("Error deleting reservation:", error);
+    res.status(500).json({ message: "Internal server error." });
   }
 };
+
 // Get reservation by ID (admin)
 exports.getReservationById = async (req, res) => {
   try {

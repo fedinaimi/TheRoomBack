@@ -413,24 +413,34 @@ exports.createUser = async (req, res) => {
   try {
     const { firstName, lastName, email, password, usertype } = req.body;
 
+    // Validate all required fields
+    if (!firstName || !lastName || !email || !password || !usertype) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Validate usertype
     if (!['admin', 'subadmin'].includes(usertype)) {
       return res.status(400).json({ message: 'Invalid usertype' });
     }
 
+    // Check if the user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({ message: 'User already exists' });
     }
 
+    // Create new user
     const user = new User({ firstName, lastName, email, usertype, verified: true });
-    user.setPassword(password);
+    user.setPassword(password); // Hash and set the password
     await user.save();
 
     res.status(201).json({ message: 'User created successfully', user });
   } catch (error) {
+    console.error('Error creating user:', error);
     res.status(500).json({ message: 'Error creating user', error });
   }
 };
+
 
 // Update user verification
 exports.updateUserVerification = async (req, res) => {

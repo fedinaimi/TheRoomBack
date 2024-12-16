@@ -13,9 +13,9 @@ router.get('/', auth, reservationController.getAllReservations);
 router.get('/:id', auth, reservationController.getReservationById);
 
 // Update reservation status (admin)
-router.put('/:id/status', auth, reservationController.updateReservationStatus);
+router.put('/:source/:reservationId/status', auth, reservationController.updateReservationStatus);
 
 // Delete a reservation (admin)
-router.delete('/:id', auth, reservationController.deleteReservation);
+router.delete("/:source/:reservationId", auth, reservationController.deleteReservation);
 
 module.exports = router;

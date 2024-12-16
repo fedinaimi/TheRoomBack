@@ -6,6 +6,11 @@ const timeSlotSchema = new mongoose.Schema({
   startTime: { type: String, required: true }, // Format: HH:mm:ss
   endTime: { type: String, required: true },   // Format: HH:mm:ss
   isAvailable: { type: Boolean, default: true },
+  status: {
+    type: String,
+    enum: ['available', 'pending', 'booked', 'unavailable'], // Valid status values
+    default: 'available', // Default to "available"
+  },
 });
 
 module.exports = mongoose.model('TimeSlot', timeSlotSchema);

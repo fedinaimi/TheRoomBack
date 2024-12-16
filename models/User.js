@@ -11,12 +11,13 @@ const UserSchema = new mongoose.Schema(
     
     firstName: {
       type: String,
-      required: false,
+      required: true, // Changed to true
     },
     lastName: {
       type: String,
-      required: false,
+      required: true, // Changed to true
     },
+    
     email: {
       type: String,
       required: true,
@@ -25,7 +26,7 @@ const UserSchema = new mongoose.Schema(
 
     usertype: {
       type: String,
-      enum: ['user', 'admin', 'subadmin'],
+      enum: ['admin', 'subadmin'],
       default: "admin", // Default role
     },
     created_at: {

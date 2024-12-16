@@ -21,7 +21,7 @@ const uploadToCloudinary = async (file, folder, resourceType = 'auto') => {
 
 exports.createChapter = async (req, res) => {
   try {
-    const { name, playerNumber, minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
+    const { name, percentageOfSuccess, minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
 
     const imageUrl = req.files?.image
       ? await uploadToCloudinary(req.files.image[0].path, 'chapters/images', 'image')
@@ -32,9 +32,9 @@ exports.createChapter = async (req, res) => {
 
     const chapter = new Chapter({
       name,
-      playerNumber,
       minPlayerNumber,
       maxPlayerNumber,
+      percentageOfSuccess,
       time,
       difficulty,
       description,
@@ -93,7 +93,7 @@ exports.getChapterById = async (req, res) => {
 // Update a chapter
 exports.updateChapter = async (req, res) => {
   try {
-    const { name, playerNumber, minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
+    const { name,percentageOfSuccess,minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
 
     const chapter = await Chapter.findById(req.params.id);
     if (!chapter) return res.status(404).json({ message: 'Chapter not found' });
@@ -109,7 +109,7 @@ exports.updateChapter = async (req, res) => {
       req.params.id,
       {
         name,
-        playerNumber,
+        percentageOfSuccess,
         minPlayerNumber,
         maxPlayerNumber,
         time,
