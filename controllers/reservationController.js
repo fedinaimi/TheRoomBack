@@ -2,14 +2,8 @@ const Reservation = require('../models/Reservation');
 const TimeSlot = require('../models/TimeSlot');
 const sendEmail = require('../utils/sendEmail');
 const Notification = require('../models/Notifications');
-const User = require('../models/User'); // Import the User model
-const { format } = require('date-fns'); // Use date-fns to format dates
-
 const ApprovedReservation = require("../models/ApprovedReservation");
 const DeclinedReservation = require("../models/DeclinedReservation");
-
-
-
 exports.createReservation = async (req, res) => {
   try {
     const { scenario, chapter, timeSlot, name, email, phone, language } = req.body;
@@ -23,56 +17,49 @@ exports.createReservation = async (req, res) => {
 
     // Check if the time slot exists and is available
     const timeSlotData = await TimeSlot.findById(timeSlot);
-    if (!timeSlotData) {
-      return res.status(404).json({ message: "Le créneau horaire n'existe pas." });
-    }
-
-    if (timeSlotData.status === "booked" || timeSlotData.status === "unavailable") {
+    if (!timeSlotData || timeSlotData.status !== "available") {
       return res.status(400).json({ message: "Le créneau horaire est déjà réservé ou indisponible." });
     }
 
-    // Get today's date range
+    // Define today's start and end times
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    // Check if the user already has 3 reservations for different scenarios today
+    // Fetch today's reservations for the user
     const approvedReservationsToday = await ApprovedReservation.find({
-      phone,
       email,
+      phone,
       createdAt: { $gte: todayStart, $lte: todayEnd },
     });
 
-    if (approvedReservationsToday.length >= 3) {
-      return res.status(400).json({
-        message: "Vous ne pouvez effectuer qu'un maximum de 3 réservations par jour pour des scénarios différents.",
-      });
-    }
-
-    // Check if the user already has an approved reservation for the same scenario today
-    const scenarioReservationToday = await ApprovedReservation.findOne({
-      phone,
+    const pendingReservationsToday = await Reservation.find({
       email,
-      scenario,
+      phone,
       createdAt: { $gte: todayStart, $lte: todayEnd },
     });
 
-    if (scenarioReservationToday) {
+    const allReservationsToday = [...approvedReservationsToday, ...pendingReservationsToday];
+
+    console.log("All Reservations Today:", allReservationsToday);
+
+    // Check if the user already reserved the same scenario today (any chapter)
+    const sameScenarioReservation = allReservationsToday.find(
+      (res) => res.scenario.toString() === scenario
+    );
+
+    if (sameScenarioReservation) {
       return res.status(400).json({
-        message: "Vous ne pouvez réserver qu'un seul créneau pour ce scénario par jour.",
+        message: "Vous avez déjà réservé un créneau pour ce scénario aujourd'hui.",
       });
     }
 
-    // Check if the user has a declined reservation for the same time slot (allow re-reservation)
-    const declinedReservation = await DeclinedReservation.findOne({
-      phone,
-      email,
-      timeSlot,
-    });
-
-    if (declinedReservation) {
-      console.log("Reservation previously declined. Proceeding with new reservation.");
+    // Limit to 3 reservations for different scenarios per day
+    if (allReservationsToday.length >= 3) {
+      return res.status(400).json({
+        message: "Vous ne pouvez effectuer qu'un maximum de 3 réservations par jour.",
+      });
     }
 
     // Create a new reservation
@@ -87,54 +74,43 @@ exports.createReservation = async (req, res) => {
     });
     await reservation.save();
 
-    // Update the time slot status to "pending"
-    timeSlotData.status = "pending"; // Set the time slot status to pending
+    // Update time slot status
+    timeSlotData.status = "pending";
     await timeSlotData.save();
 
-    // Populate the reservation with scenario and chapter names
-    const populatedReservation = await Reservation.findById(reservation._id)
-      .populate("scenario")
-      .populate("chapter");
-
-    // Create a notification for the reservation
+    // Send notification to admin
     const notification = new Notification({
       message: `Nouvelle réservation par ${name}`,
       reservationId: reservation._id,
-      details: `Réservation pour le scénario : ${populatedReservation.scenario.title}, chapitre : ${populatedReservation.chapter.name}.`,
+      details: `Réservation pour le scénario ID: ${scenario}, chapitre ID: ${chapter}.`,
     });
     await notification.save();
 
-    // Send confirmation email to the customer
+    // Send confirmation email
     const customerEmailContent = `
       <html>
-        <head><title>Statut de votre réservation</title></head>
-        <body style="font-family: Arial, sans-serif; color: #333;">
-          <h1 style="text-align: center; color: #4CAF50;">Votre réservation a été reçue</h1>
-          <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
-          <p><strong>Chapitre :</strong> ${populatedReservation.chapter.name}</p>
-          <p><strong>Créneau horaire :</strong> ${new Date(timeSlotData.startTime).toLocaleString()} - ${new Date(timeSlotData.endTime).toLocaleString()}</p>
+        <head><title>Confirmation de Réservation</title></head>
+        <body>
+          <h1>Votre réservation a été reçue</h1>
           <p><strong>Nom :</strong> ${name}</p>
           <p><strong>Email :</strong> ${email}</p>
           <p><strong>Téléphone :</strong> ${phone}</p>
-          <p><strong>Langue :</strong> ${language || "Non spécifiée"}</p>
-          <p style="color: red;">Veuillez patienter que l'admin approuve votre réservation. Vous recevrez un email une fois approuvée.</p>
+          <p><strong>Créneau horaire :</strong> ${new Date(timeSlotData.startTime).toLocaleString()} - ${new Date(timeSlotData.endTime).toLocaleString()}</p>
+          <p>Veuillez attendre que l'administrateur approuve votre réservation.</p>
         </body>
       </html>
     `;
+    await sendEmail(email, "Confirmation de Réservation", customerEmailContent);
 
-    await sendEmail(email, "Réservation TheRoom", customerEmailContent);
-
-    res.status(201).json({ message: "Votre réservation a été créée avec succès.", reservation });
+    res.status(201).json({
+      message: "Votre réservation a été créée avec succès.",
+      reservation,
+    });
   } catch (error) {
     console.error("Erreur lors de la création de la réservation :", error.message || error);
     res.status(500).json({ message: "Erreur interne du serveur. Veuillez réessayer plus tard." });
   }
 };
-
-
-
-
-
 
 
 // Get all reservations (admin)
