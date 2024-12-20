@@ -409,37 +409,63 @@ exports.fetchAllUsers = async (req, res) => {
 };
 
 // Create user
+
+
 exports.createUser = async (req, res) => {
   try {
     const { firstName, lastName, email, password, usertype } = req.body;
 
-    // Validate all required fields
+    // Validation des champs obligatoires
     if (!firstName || !lastName || !email || !password || !usertype) {
-      return res.status(400).json({ message: 'All fields are required' });
+      return res.status(400).json({ message: 'Tous les champs sont obligatoires' });
     }
 
-    // Validate usertype
+    // Validation du type d'utilisateur
     if (!['admin', 'subadmin'].includes(usertype)) {
-      return res.status(400).json({ message: 'Invalid usertype' });
+      return res.status(400).json({ message: 'Type d’utilisateur invalide' });
     }
 
-    // Check if the user already exists
+    // Vérification si l'utilisateur existe déjà
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(409).json({ message: 'User already exists' });
+      return res.status(409).json({ message: 'L’utilisateur existe déjà' });
     }
 
-    // Create new user
+    // Création d'un nouvel utilisateur
     const user = new User({ firstName, lastName, email, usertype, verified: true });
-    user.setPassword(password); // Hash and set the password
+    user.setPassword(password); // Hashage et définition du mot de passe
     await user.save();
 
-    res.status(201).json({ message: 'User created successfully', user });
+    // Préparation du contenu de l'email
+    const dashboardLink = "http://www.dashboard.theroom.tn/";
+    const emailSubject = "Vos identifiants pour le tableau de bord";
+    const emailBody = `
+      <h1>Bienvenue sur le tableau de bord The Room !</h1>
+      <p>Bonjour ${firstName} ${lastName},</p>
+      <p>Votre compte a été créé avec succès. Voici vos identifiants :</p>
+      <ul>
+        <li><strong>Email :</strong> ${email}</li>
+        <li><strong>Mot de passe :</strong> ${password}</li>
+        <li><strong>Type d'utilisateur :</strong> ${usertype}</li>
+      </ul>
+      <p>Vous pouvez accéder au tableau de bord via le lien ci-dessous :</p>
+      <a href="${dashboardLink}" style="background-color: #007bff; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Accéder au tableau de bord</a>
+      <p>Pour des raisons de sécurité, nous vous recommandons de changer votre mot de passe après vous être connecté.</p>
+      <p>Cordialement,</p>
+      <p>L’équipe The Room</p>
+    `;
+
+    // Envoi de l'email
+    await sendEmail(email, emailSubject, emailBody);
+
+    res.status(201).json({ message: 'Utilisateur créé avec succès et identifiants envoyés par email', user });
   } catch (error) {
-    console.error('Error creating user:', error);
-    res.status(500).json({ message: 'Error creating user', error });
+    console.error('Erreur lors de la création de l’utilisateur :', error);
+    res.status(500).json({ message: 'Erreur lors de la création de l’utilisateur', error });
   }
 };
+
+
 
 
 // Update user verification

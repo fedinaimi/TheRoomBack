@@ -10,6 +10,9 @@ const reservationSchema = new mongoose.Schema({
   language: { type: String, required: false },
   status: { type: String, enum: ['pending', 'approved', 'declined'], default: 'pending' },
   createdAt: { type: Date, default: Date.now },
+  people: { type: Number, required: true }, // New field
+
+  
 });
 
 module.exports = mongoose.model('Reservation', reservationSchema);

@@ -10,6 +10,7 @@ const declinedReservationSchema = new mongoose.Schema({
   language: { type: String, required: false },
   createdAt: { type: Date, default: Date.now },
   status: { type: String, enum: ["declined", "pending", "approved"], default: "declined" }, // Add status field
+  people: { type: Number, required: true }, // New field
 
 });
 
