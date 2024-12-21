@@ -8,9 +8,10 @@ const timeSlotSchema = new mongoose.Schema({
   isAvailable: { type: Boolean, default: true },
   status: {
     type: String,
-    enum: ['available', 'pending', 'booked', 'unavailable'], // Valid status values
-    default: 'available', // Default to "available"
+    enum: ['available', 'pending', 'booked', 'blocked', 'unavailable'], // Added 'blocked'
+    default: 'available',
   },
+  blockedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Reservation', default: null }, // Tracks which reservation blocked this slot
 });
 
 module.exports = mongoose.model('TimeSlot', timeSlotSchema);
