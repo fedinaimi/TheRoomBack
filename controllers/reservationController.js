@@ -143,10 +143,7 @@ exports.createReservation = async (req, res) => {
             startTime: { $lte: timeSlotData.startTime },
             endTime: { $gte: timeSlotData.startTime },
           },
-          {
-            startTime: { $lte: timeSlotData.endTime },
-            endTime: { $gte: timeSlotData.endTime },
-          },
+       
           {
             startTime: { $gte: timeSlotData.startTime },
             endTime: { $lte: timeSlotData.endTime },
@@ -160,7 +157,7 @@ exports.createReservation = async (req, res) => {
         .map((slot) => ({
           updateOne: {
             filter: { _id: slot._id },
-            update: { status: "pending", isAvailable: false, blockedBy: reservation._id },
+            update: {  status: "blocked", isAvailable: false, blockedBy: reservation._id },
           },
         }));
 
@@ -435,10 +432,7 @@ exports.updateReservationStatus = async (req, res) => {
               startTime: { $lte: timeSlot.startTime },
               endTime: { $gte: timeSlot.startTime },
             },
-            {
-              startTime: { $lte: timeSlot.endTime },
-              endTime: { $gte: timeSlot.endTime },
-            },
+      
             {
               startTime: { $gte: timeSlot.startTime },
               endTime: { $lte: timeSlot.endTime },
@@ -522,10 +516,7 @@ exports.updateReservationStatus = async (req, res) => {
               startTime: { $lte: timeSlot.startTime },
               endTime: { $gte: timeSlot.startTime },
             },
-            {
-              startTime: { $lte: timeSlot.endTime },
-              endTime: { $gte: timeSlot.endTime },
-            },
+        
             {
               startTime: { $gte: timeSlot.startTime },
               endTime: { $lte: timeSlot.endTime },
@@ -539,7 +530,7 @@ exports.updateReservationStatus = async (req, res) => {
           .map((slot) => ({
             updateOne: {
               filter: { _id: slot._id },
-              update: { status: "available", blockedBy: null },
+              update: {  status: "available", isAvailable: true, blockedBy: null },
             },
           }));
 
