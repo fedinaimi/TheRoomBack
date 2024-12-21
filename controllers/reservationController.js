@@ -1,3 +1,4 @@
+
 const Reservation = require("../models/Reservation");
 const TimeSlot = require("../models/TimeSlot");
 const sendEmail = require("../utils/sendEmail");
@@ -7,9 +8,9 @@ const DeclinedReservation = require("../models/DeclinedReservation");
 const Scenario = require("../models/Scenario");
 const Chapter = require("../models/Chapter");
 const User = require("../models/User");
-const deletedReservationSchema = require("../models/DeletedReservation");
 const DeletedReservation = require("../models/DeletedReservation");
 
+// Create a new reservation
 exports.createReservation = async (req, res) => {
   try {
     const { scenario, chapter, timeSlot, name, email, phone, language, people } = req.body;
@@ -41,6 +42,19 @@ exports.createReservation = async (req, res) => {
         .json({ message: "Le créneau horaire est déjà réservé ou indisponible." });
     }
 
+    // Fetch scenario and chapter details
+    const scenarioDoc = await Scenario.findById(scenario);
+    if (!scenarioDoc) {
+      return res.status(404).json({ message: "Scénario introuvable." });
+    }
+    const chapterDoc = await Chapter.findById(chapter);
+    if (!chapterDoc) {
+      return res.status(404).json({ message: "Chapitre introuvable." });
+    }
+
+    const scenarioName = scenarioDoc.name || `Scénario (ID: ${scenario})`;
+    const chapterName = chapterDoc.name || `Chapitre (ID: ${chapter})`;
+
     // Determine the day based on the selected time slot
     const slotDate = new Date(timeSlotData.startTime);
     const dayStart = new Date(
@@ -54,19 +68,6 @@ exports.createReservation = async (req, res) => {
     );
     const dayEnd = new Date(dayStart);
     dayEnd.setHours(23, 59, 59, 999);
-
-    // Fetch scenario and chapter details
-    const scenarioDoc = await Scenario.findById(scenario);
-    if (!scenarioDoc) {
-      return res.status(404).json({ message: "Scénario introuvable." });
-    }
-    const chapterDoc = await Chapter.findById(chapter);
-    if (!chapterDoc) {
-      return res.status(404).json({ message: "Chapitre introuvable." });
-    }
-
-    const scenarioName = scenarioDoc.name || `Scénario (ID: ${scenario})`;
-    const chapterName = chapterDoc.name || `Chapitre (ID: ${chapter})`;
 
     // Fetch reservations for this user (both approved and pending) and filter by the same day
     const userApprovedReservations = await ApprovedReservation.find({ email, phone }).populate(
@@ -124,45 +125,35 @@ exports.createReservation = async (req, res) => {
     timeSlotData.status = "pending";
     await timeSlotData.save();
 
-    // **New Logic**: Block parallel time slots in other chapters of the same scenario
-    // Find all chapters in the same scenario excluding the current one
+    // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
     const parallelChapters = await Chapter.find({
       scenario: scenarioDoc._id,
       _id: { $ne: chapterDoc._id },
     });
 
     if (parallelChapters.length > 0) {
-      // Extract chapter IDs
       const parallelChapterIds = parallelChapters.map((chap) => chap._id);
 
-      // Find all time slots in parallel chapters that overlap with the selected time slot
       const parallelTimeSlots = await TimeSlot.find({
         chapter: { $in: parallelChapterIds },
-        $or: [
-          {
-            startTime: { $lte: timeSlotData.startTime },
-            endTime: { $gte: timeSlotData.startTime },
-          },
-       
-          {
-            startTime: { $gte: timeSlotData.startTime },
-            endTime: { $lte: timeSlotData.endTime },
-          },
+        $and: [
+          { startTime: { $lt: timeSlotData.endTime } }, // Overlaps with current time slot's end
+          { endTime: { $gt: timeSlotData.startTime } }, // Overlaps with current time slot's start
         ],
       });
 
-      // Update the status of these parallel time slots to 'blocked' if they are 'available'
       const bulkOps = parallelTimeSlots
         .filter((slot) => slot.status === "available")
         .map((slot) => ({
           updateOne: {
             filter: { _id: slot._id },
-            update: {  status: "blocked", isAvailable: false, blockedBy: reservation._id },
+            update: { status: "blocked", isAvailable: false, blockedBy: reservation._id },
           },
         }));
 
       if (bulkOps.length > 0) {
         await TimeSlot.bulkWrite(bulkOps);
+        console.log("Blocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
       }
     }
 
@@ -318,12 +309,395 @@ exports.createReservation = async (req, res) => {
     });
   } catch (error) {
     console.error("Erreur lors de la création de la réservation :", error.message || error);
-    return res
-      .status(500)
-      .json({ message: "Erreur interne du serveur. Veuillez réessayer plus tard." });
+    return res.status(500).json({
+      message: "Erreur interne du serveur. Veuillez réessayer plus tard.",
+    });
   }
 };
 
+// Get all reservations (admin)
+exports.getAllReservations = async (req, res) => {
+  try {
+    // Fetch data from all collections
+    const reservations = await Reservation.find()
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const approvedReservations = await ApprovedReservation.find()
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const declinedReservations = await DeclinedReservation.find()
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const deletedReservations = await DeletedReservation.find()
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    // Send data grouped by collection
+    res.status(200).json({
+      reservations,
+      approvedReservations,
+      declinedReservations,
+      deletedReservations,
+    });
+  } catch (error) {
+    console.error("Error fetching reservations:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Update reservation status (approve or decline)
+exports.updateReservationStatus = async (req, res) => {
+  try {
+    const { status } = req.body; // 'approved' or 'declined'
+    const { source, reservationId } = req.params; // Source and ID of the reservation
+
+    // Validate status
+    if (!["approved", "declined"].includes(status)) {
+      return res.status(400).json({ message: "Statut invalide. Utilisez 'approved' ou 'declined'." });
+    }
+
+    // Fetch the reservation based on source
+    let reservation;
+    if (source === "reservations") {
+      reservation = await Reservation.findById(reservationId).populate("timeSlot chapter scenario");
+    } else if (source === "approvedReservations") {
+      reservation = await ApprovedReservation.findById(reservationId).populate("timeSlot chapter scenario");
+    } else if (source === "declinedReservations") {
+      reservation = await DeclinedReservation.findById(reservationId).populate("timeSlot chapter scenario");
+    } else {
+      return res.status(400).json({ message: "Source invalide spécifié." });
+    }
+
+    // Validate if reservation exists
+    if (!reservation) {
+      return res.status(404).json({ message: "Réservation non trouvée." });
+    }
+
+    const timeSlot = reservation.timeSlot;
+
+    // Validate if time slot exists
+    if (!timeSlot) {
+      return res.status(400).json({ message: "Créneau horaire non trouvé pour cette réservation." });
+    }
+
+    if (status === "approved") {
+      // Move to ApprovedReservation collection
+      const approvedReservation = new ApprovedReservation({
+        ...reservation.toObject(),
+        status: "approved",
+      });
+      await approvedReservation.save();
+
+      // Update time slot to "booked"
+      timeSlot.status = "booked";
+      timeSlot.isAvailable = false;
+      await timeSlot.save();
+
+      // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
+      const scenarioId = reservation.scenario._id;
+      const chapterId = reservation.chapter._id;
+
+      // Find all chapters in the same scenario excluding the current one
+      const parallelChapters = await Chapter.find({
+        scenario: scenarioId,
+        _id: { $ne: chapterId },
+      });
+
+      if (parallelChapters.length > 0) {
+        // Extract chapter IDs
+        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
+
+        // Find all time slots in parallel chapters that overlap with the selected time slot
+        const parallelTimeSlots = await TimeSlot.find({
+          chapter: { $in: parallelChapterIds },
+          $and: [
+            { startTime: { $lt: timeSlot.endTime } }, // Overlaps with current time slot's end
+            { endTime: { $gt: timeSlot.startTime } }, // Overlaps with current time slot's start
+          ],
+        });
+
+        // Update the status of these parallel time slots to 'blocked' if they are 'available'
+        const bulkOps = parallelTimeSlots
+          .filter((slot) => slot.status === "available")
+          .map((slot) => ({
+            updateOne: {
+              filter: { _id: slot._id },
+              update: { status: "blocked", blockedBy: approvedReservation._id, isAvailable: false },
+            },
+          }));
+
+        if (bulkOps.length > 0) {
+          await TimeSlot.bulkWrite(bulkOps);
+          console.log("Blocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+        }
+      }
+
+      // Send approval email to customer
+      const emailContent = `
+        <html>
+          <head><title>Reservation Approuvée</title></head>
+          <body style="font-family: Arial, sans-serif; color: #333;">
+            <h1 style="text-align: center; color: #4CAF50;">Votre réservation a été approuvée</h1>
+            <p>Bonjour ${reservation.name},</p>
+            <p>Votre réservation a été approuvée avec succès.</p>
+            <p><strong>Détails de la réservation :</strong></p>
+            <ul>
+              <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
+              <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+              <li><strong>Statut :</strong> Approuvée</li>
+            </ul>
+            <p>Merci d'avoir choisi notre service !</p>
+          </body>
+        </html>
+      `;
+      await sendEmail(reservation.email, "Réservation Approuvée", emailContent);
+
+      // Remove the reservation from the original source
+      if (source === "declinedReservations") {
+        await DeclinedReservation.findByIdAndDelete(reservationId);
+      } else {
+        await Reservation.findByIdAndDelete(reservationId);
+      }
+    } else if (status === "declined") {
+      // Move to DeclinedReservation collection
+      const declinedReservation = new DeclinedReservation({
+        ...reservation.toObject(),
+        status: "declined",
+      });
+      await declinedReservation.save();
+
+      // Update time slot to "available"
+      timeSlot.status = "available";
+      timeSlot.isAvailable = true;
+      await timeSlot.save();
+
+      // **Fixed Logic**: Unblock only overlapping parallel time slots in other chapters of the same scenario
+      const scenarioId = reservation.scenario._id;
+      const chapterId = reservation.chapter._id;
+
+      // Find all chapters in the same scenario excluding the current one
+      const parallelChapters = await Chapter.find({
+        scenario: scenarioId,
+        _id: { $ne: chapterId },
+      });
+
+      if (parallelChapters.length > 0) {
+        // Extract chapter IDs
+        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
+
+        // Find all time slots in parallel chapters that overlap with the selected time slot
+        const parallelTimeSlots = await TimeSlot.find({
+          chapter: { $in: parallelChapterIds },
+          $and: [
+            { startTime: { $lt: timeSlot.endTime } }, // Overlaps with current time slot's end
+            { endTime: { $gt: timeSlot.startTime } }, // Overlaps with current time slot's start
+          ],
+        });
+
+        // Update the status of these parallel time slots to 'available' if they were blocked by this reservation
+        const bulkOps = parallelTimeSlots
+          .filter(
+            (slot) =>
+              slot.status === "blocked" &&
+              slot.blockedBy &&
+              slot.blockedBy.toString() === reservationId
+          )
+          .map((slot) => ({
+            updateOne: {
+              filter: { _id: slot._id },
+              update: { status: "available", isAvailable: true, blockedBy: null },
+            },
+          }));
+
+        if (bulkOps.length > 0) {
+          await TimeSlot.bulkWrite(bulkOps);
+          console.log("Unblocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+        }
+      }
+
+      // Send decline email to customer
+      const emailContent =
+        source === "approvedReservations"
+          ? `
+          <html>
+            <head><title>Reservation Refusée</title></head>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+              <h1 style="text-align: center; color: #FF5733;">Réservation Refusée en raison de Problèmes Techniques</h1>
+              <p>Bonjour ${reservation.name},</p>
+              <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
+              <p>Nous nous excusons pour le désagrément causé.</p>
+              <p><strong>Détails de la réservation :</strong></p>
+              <ul>
+                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+                <li><strong>Statut :</strong> Refusée</li>
+              </ul>
+            </body>
+          </html>
+        `
+          : `
+          <html>
+            <head><title>Reservation Refusée</title></head>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+              <h1 style="text-align: center; color: #FF5733;">Réservation Refusée</h1>
+              <p>Bonjour ${reservation.name},</p>
+              <p>Votre réservation a été refusée.</p>
+              <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
+              <p><strong>Détails de la réservation :</strong></p>
+              <ul>
+                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+                <li><strong>Statut :</strong> Refusée</li>
+              </ul>
+            </body>
+          </html>
+        `;
+      await sendEmail(reservation.email, "Réservation Refusée", emailContent);
+
+      // Remove the reservation from the original source
+      if (source === "approvedReservations") {
+        await ApprovedReservation.findByIdAndDelete(reservationId);
+      } else {
+        await Reservation.findByIdAndDelete(reservationId);
+      }
+    }
+
+    // Send response
+    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
+// Delete a reservation
+exports.deleteReservation = async (req, res) => {
+  const { source, reservationId } = req.params;
+
+  if (!source || !reservationId) {
+    return res
+      .status(400)
+      .json({ message: "Source or reservation ID is missing." });
+  }
+
+  try {
+    let reservation;
+
+    // Retrieve the reservation based on the source
+    if (source === "reservations") {
+      reservation = await Reservation.findById(reservationId);
+    } else if (source === "approvedReservations") {
+      reservation = await ApprovedReservation.findById(reservationId);
+    } else if (source === "declinedReservations") {
+      reservation = await DeclinedReservation.findById(reservationId);
+    } else {
+      return res.status(400).json({ message: "Invalid source specified." });
+    }
+
+    if (!reservation) {
+      return res.status(404).json({ message: "Reservation not found." });
+    }
+
+    // Check if the associated time slot is in the past
+    const timeSlot = await TimeSlot.findById(reservation.timeSlot);
+    if (!timeSlot) {
+      return res.status(400).json({ message: "Créneau horaire non trouvé pour cette réservation." });
+    }
+
+    // Move reservation to DeletedReservation
+    await DeletedReservation.create({
+      scenario: reservation.scenario,
+      chapter: reservation.chapter,
+      timeSlot: reservation.timeSlot,
+      name: reservation.name,
+      email: reservation.email,
+      phone: reservation.phone,
+      language: reservation.language,
+      createdAt: reservation.createdAt,
+      status: "deleted",
+      people: reservation.people,
+    });
+
+    // If time slot is in the past, additional logic can be implemented here if needed
+
+    // Update time slot status based on reservation source
+    if (source === "approvedReservations") {
+      timeSlot.status = "available";
+      timeSlot.isAvailable = true;
+      timeSlot.blockedBy = null;
+      await timeSlot.save();
+    } else if (source === "reservations" || source === "declinedReservations") {
+      timeSlot.status = "available";
+      timeSlot.isAvailable = true;
+      timeSlot.blockedBy = null;
+      await timeSlot.save();
+    }
+
+    // Unblock parallel time slots if necessary
+    const scenarioDoc = await Scenario.findById(reservation.scenario);
+    const chapterDoc = await Chapter.findById(reservation.chapter);
+    if (scenarioDoc && chapterDoc) {
+      const parallelChapters = await Chapter.find({
+        scenario: scenarioDoc._id,
+        _id: { $ne: chapterDoc._id },
+      });
+
+      if (parallelChapters.length > 0) {
+        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
+
+        const parallelTimeSlots = await TimeSlot.find({
+          chapter: { $in: parallelChapterIds },
+          $and: [
+            { startTime: { $lt: timeSlot.endTime } },
+            { endTime: { $gt: timeSlot.startTime } },
+          ],
+        });
+
+        const bulkOps = parallelTimeSlots
+          .filter(
+            (slot) =>
+              slot.status === "blocked" &&
+              slot.blockedBy &&
+              slot.blockedBy.toString() === reservationId
+          )
+          .map((slot) => ({
+            updateOne: {
+              filter: { _id: slot._id },
+              update: { status: "available", isAvailable: true, blockedBy: null },
+            },
+          }));
+
+        if (bulkOps.length > 0) {
+          await TimeSlot.bulkWrite(bulkOps);
+          console.log("Unblocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+        }
+      }
+    }
+
+    // Delete the reservation from the original source
+    if (source === "reservations") {
+      await Reservation.findByIdAndDelete(reservationId);
+    } else if (source === "approvedReservations") {
+      await ApprovedReservation.findByIdAndDelete(reservationId);
+    } else if (source === "declinedReservations") {
+      await DeclinedReservation.findByIdAndDelete(reservationId);
+    }
+
+    return res.status(200).json({
+      message: "Reservation deleted and moved to DeletedReservation.",
+    });
+  } catch (error) {
+    console.error("Error deleting reservation:", error);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
 
 // Get all reservations (admin)
 
