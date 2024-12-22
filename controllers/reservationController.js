@@ -190,7 +190,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
     const customerEmailContent = `
       <html>
       <head>
-      <title>Confirmation de Réservation</title>
+      <title>Confirmation est en cours de traitement</title>
       <meta charset="UTF-8"/>
       <style>
         body {
@@ -216,7 +216,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
       <body>
         <div class="email-container">
           <div class="header">
-            <h1>Confirmation de votre réservation</h1>
+            <h1>Confirmation est en cours de traitement</h1>
           </div>
           <div class="content">
             <h2>Bonjour ${name},</h2>
