@@ -1,4 +1,5 @@
 
+
 const Reservation = require("../models/Reservation");
 const TimeSlot = require("../models/TimeSlot");
 const sendEmail = require("../utils/sendEmail");
@@ -11,51 +12,56 @@ const User = require("../models/User");
 const DeletedReservation = require("../models/DeletedReservation");
 
 // Create a new reservation
-exports.createReservation = async (req, res) => {
+exports.createReservation = async (req, res) => { // Correction ici: remplacer 're*s' par 'res'
   try {
+    console.log("Début de la création de réservation");
     const { scenario, chapter, timeSlot, name, email, phone, language, people } = req.body;
 
-    // Validate required fields
+    // Validation des champs obligatoires
     if (!scenario || !chapter || !timeSlot || !name || !email || !phone || !people) {
+      console.warn("Champs manquants:", req.body);
       return res.status(400).json({
-        message:
-          "Tous les champs sont obligatoires : scénario, chapitre, créneau horaire, nom, email, téléphone et nombre de personnes.",
+        message: "Tous les champs sont obligatoires : scénario, chapitre, créneau horaire, nom, email, téléphone et nombre de personnes.",
       });
     }
 
     if (people <= 0) {
+      console.warn("Nombre de personnes invalide:", people);
       return res.status(400).json({
         message: "Le nombre de personnes doit être supérieur à zéro.",
       });
     }
 
-    // Check if the time slot exists
+    // Vérifier si le créneau horaire existe
     const timeSlotData = await TimeSlot.findById(timeSlot);
     if (!timeSlotData) {
+      console.warn("Créneau horaire non trouvé:", timeSlot);
       return res.status(404).json({ message: "Le créneau horaire n'existe pas." });
     }
 
-    // Check if the time slot is available
+    // Vérifier si le créneau horaire est disponible
     if (timeSlotData.status !== "available") {
-      return res
-        .status(400)
-        .json({ message: "Le créneau horaire est déjà réservé ou indisponible." });
+      console.warn("Créneau horaire indisponible:", timeSlot);
+      return res.status(400).json({ message: "Le créneau horaire est déjà réservé ou indisponible." });
     }
 
-    // Fetch scenario and chapter details
+    // Récupérer les détails du scénario et du chapitre
     const scenarioDoc = await Scenario.findById(scenario);
     if (!scenarioDoc) {
+      console.warn("Scénario introuvable:", scenario);
       return res.status(404).json({ message: "Scénario introuvable." });
     }
+
     const chapterDoc = await Chapter.findById(chapter);
     if (!chapterDoc) {
+      console.warn("Chapitre introuvable:", chapter);
       return res.status(404).json({ message: "Chapitre introuvable." });
     }
 
     const scenarioName = scenarioDoc.name || `Scénario (ID: ${scenario})`;
     const chapterName = chapterDoc.name || `Chapitre (ID: ${chapter})`;
 
-    // Determine the day based on the selected time slot
+    // Déterminer le jour basé sur le créneau horaire sélectionné
     const slotDate = new Date(timeSlotData.startTime);
     const dayStart = new Date(
       slotDate.getFullYear(),
@@ -69,10 +75,8 @@ exports.createReservation = async (req, res) => {
     const dayEnd = new Date(dayStart);
     dayEnd.setHours(23, 59, 59, 999);
 
-    // Fetch reservations for this user (both approved and pending) and filter by the same day
-    const userApprovedReservations = await ApprovedReservation.find({ email, phone }).populate(
-      "timeSlot"
-    );
+    // Récupérer les réservations de l'utilisateur (approuvées et en attente) filtrées par le même jour
+    const userApprovedReservations = await ApprovedReservation.find({ email, phone }).populate("timeSlot");
     const userPendingReservations = await Reservation.find({ email, phone }).populate("timeSlot");
 
     const approvedReservationsThisDay = userApprovedReservations.filter((resv) => {
@@ -87,7 +91,10 @@ exports.createReservation = async (req, res) => {
 
     const allReservationsThisDay = [...approvedReservationsThisDay, ...pendingReservationsThisDay];
 
-    // Check if the user already reserved this scenario and chapter on this day
+    console.log("Réservations approuvées aujourd'hui:", approvedReservationsThisDay.length);
+    console.log("Réservations en attente aujourd'hui:", pendingReservationsThisDay.length);
+
+    // Vérifier si l'utilisateur a déjà réservé ce scénario et chapitre le même jour
     const sameScenarioChapterReservation = allReservationsThisDay.find(
       (resv) =>
         resv.scenario.toString() === scenario.toString() &&
@@ -95,20 +102,21 @@ exports.createReservation = async (req, res) => {
     );
 
     if (sameScenarioChapterReservation) {
+      console.warn("Réservation du même scénario et chapitre déjà existante pour aujourd'hui.");
       return res.status(400).json({
-        message:
-          "Vous avez déjà réservé un créneau pour ce scénario et ce chapitre aujourd'hui.",
+        message: "Vous avez déjà réservé un créneau pour ce scénario et ce chapitre aujourd'hui.",
       });
     }
 
-    // Limit to 3 total reservations per user per day
+    // Limiter à 3 réservations totales par utilisateur par jour
     if (allReservationsThisDay.length >= 3) {
+      console.warn("Limite de réservations quotidienne atteinte:", allReservationsThisDay.length);
       return res.status(400).json({
         message: "Vous ne pouvez effectuer qu'un maximum de 3 réservations par jour.",
       });
     }
 
-    // Create a new reservation
+    // Créer une nouvelle réservation
     const reservation = new Reservation({
       scenario,
       chapter,
@@ -120,12 +128,14 @@ exports.createReservation = async (req, res) => {
       people,
     });
     await reservation.save();
+    console.log("Réservation créée:", reservation._id);
 
-    // Update time slot status to pending
+    // Mettre à jour le statut du créneau horaire en "pending"
     timeSlotData.status = "pending";
     await timeSlotData.save();
+    console.log("Statut du créneau horaire mis à jour en 'pending'");
 
-    // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
+    // Bloquer uniquement les créneaux parallèles dans d'autres chapitres du même scénario
     const parallelChapters = await Chapter.find({
       scenario: scenarioDoc._id,
       _id: { $ne: chapterDoc._id },
@@ -136,10 +146,8 @@ exports.createReservation = async (req, res) => {
 
       const parallelTimeSlots = await TimeSlot.find({
         chapter: { $in: parallelChapterIds },
-        $and: [
-          { startTime: { $lt: timeSlotData.endTime } }, // Overlaps with current time slot's end
-          { endTime: { $gt: timeSlotData.startTime } }, // Overlaps with current time slot's start
-        ],
+        startTime: { $lt: timeSlotData.endTime }, // Surcharge avec endTime
+        endTime: { $gt: timeSlotData.startTime }, // Surcharge avec startTime
       });
 
       const bulkOps = parallelTimeSlots
@@ -153,11 +161,11 @@ exports.createReservation = async (req, res) => {
 
       if (bulkOps.length > 0) {
         await TimeSlot.bulkWrite(bulkOps);
-        console.log("Blocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+        console.log("Créneaux parallèles bloqués:", bulkOps.map((op) => op.updateOne.filter._id));
       }
     }
 
-    // Format times for emails
+    // Formater les heures pour les emails
     const startTimeLocal = new Date(timeSlotData.startTime).toLocaleString("fr-FR", {
       timeZone: "Africa/Tunis",
       hour12: false,
@@ -177,7 +185,7 @@ exports.createReservation = async (req, res) => {
       minute: "2-digit",
     });
 
-    // Confirmation email to customer
+    // Email de confirmation au client
     const customerEmailSubject = "Restez informé : Votre réservation est en attente d'approbation";
     const customerEmailContent = `
       <html>
@@ -235,8 +243,9 @@ exports.createReservation = async (req, res) => {
     `;
 
     await sendEmail(email, customerEmailSubject, customerEmailContent);
+    console.log("Email de confirmation envoyé au client:", email);
 
-    // Notify admins
+    // Notification aux administrateurs
     const admins = await User.find({ usertype: { $in: ["admin", "subadmin"] } });
     const adminEmailSubject = "Nouvelle réservation en attente d'approbation";
     const adminEmailContent = `
@@ -301,6 +310,35 @@ exports.createReservation = async (req, res) => {
 
     for (const adminUser of admins) {
       await sendEmail(adminUser.email, adminEmailSubject, adminEmailContent);
+      console.log("Email envoyé à l'administrateur:", adminUser.email);
+    }
+
+    // Créer une notification pour l'utilisateur
+    const notification = new Notification({
+      message: "Nouvelle réservation en attente d'approbation.",
+      reservationId: reservation._id,
+      details: {
+        name,
+        email,
+        phone,
+        people,
+        scenario: scenarioName,
+        chapter: chapterName,
+        timeSlot: {
+          startTime: timeSlotData.startTime,
+          endTime: timeSlotData.endTime,
+        },
+      },
+    });
+    await notification.save();
+    console.log("Notification créée pour l'utilisateur:", notification._id);
+
+    // Émettre la notification via Socket.IO
+    if (global.io) {
+      global.io.emit("notification", notification);
+      console.log("Notification émise via Socket.IO");
+    } else {
+      console.warn("Socket.IO n'est pas initialisé.");
     }
 
     return res.status(201).json({
@@ -314,7 +352,6 @@ exports.createReservation = async (req, res) => {
     });
   }
 };
-
 // Get all reservations (admin)
 exports.getAllReservations = async (req, res) => {
   try {
@@ -360,17 +397,27 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate status
     if (!["approved", "declined"].includes(status)) {
-      return res.status(400).json({ message: "Statut invalide. Utilisez 'approved' ou 'declined'." });
+      return res
+        .status(400)
+        .json({
+          message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
+        });
     }
 
     // Fetch the reservation based on source
     let reservation;
     if (source === "reservations") {
-      reservation = await Reservation.findById(reservationId).populate("timeSlot chapter scenario");
+      reservation = await Reservation.findById(reservationId).populate(
+        "timeSlot chapter scenario"
+      );
     } else if (source === "approvedReservations") {
-      reservation = await ApprovedReservation.findById(reservationId).populate("timeSlot chapter scenario");
+      reservation = await ApprovedReservation.findById(reservationId).populate(
+        "timeSlot chapter scenario"
+      );
     } else if (source === "declinedReservations") {
-      reservation = await DeclinedReservation.findById(reservationId).populate("timeSlot chapter scenario");
+      reservation = await DeclinedReservation.findById(reservationId).populate(
+        "timeSlot chapter scenario"
+      );
     } else {
       return res.status(400).json({ message: "Source invalide spécifié." });
     }
@@ -384,7 +431,11 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate if time slot exists
     if (!timeSlot) {
-      return res.status(400).json({ message: "Créneau horaire non trouvé pour cette réservation." });
+      return res
+        .status(400)
+        .json({
+          message: "Créneau horaire non trouvé pour cette réservation.",
+        });
     }
 
     if (status === "approved") {
@@ -429,13 +480,20 @@ exports.updateReservationStatus = async (req, res) => {
           .map((slot) => ({
             updateOne: {
               filter: { _id: slot._id },
-              update: { status: "blocked", blockedBy: approvedReservation._id, isAvailable: false },
+              update: {
+                status: "blocked",
+                blockedBy: approvedReservation._id,
+                isAvailable: false,
+              },
             },
           }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
-          console.log("Blocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+          console.log(
+            "Blocked parallel time slots:",
+            bulkOps.map((op) => op.updateOne.filter._id)
+          );
         }
       }
 
@@ -449,8 +507,16 @@ exports.updateReservationStatus = async (req, res) => {
             <p>Votre réservation a été approuvée avec succès.</p>
             <p><strong>Détails de la réservation :</strong></p>
             <ul>
-              <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-              <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+              <li><strong>ID de la réservation :</strong> ${
+                reservation._id
+              }</li>
+              <li><strong>Créneau horaire :</strong> ${new Date(
+                timeSlot.startTime
+              ).toLocaleString("fr-FR", {
+                timeZone: "Africa/Tunis",
+              })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+        timeZone: "Africa/Tunis",
+      })}</li>
               <li><strong>Statut :</strong> Approuvée</li>
             </ul>
             <p>Merci d'avoir choisi notre service !</p>
@@ -512,13 +578,20 @@ exports.updateReservationStatus = async (req, res) => {
           .map((slot) => ({
             updateOne: {
               filter: { _id: slot._id },
-              update: { status: "available", isAvailable: true, blockedBy: null },
+              update: {
+                status: "available",
+                isAvailable: true,
+                blockedBy: null,
+              },
             },
           }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
-          console.log("Unblocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+          console.log(
+            "Unblocked parallel time slots:",
+            bulkOps.map((op) => op.updateOne.filter._id)
+          );
         }
       }
 
@@ -535,8 +608,16 @@ exports.updateReservationStatus = async (req, res) => {
               <p>Nous nous excusons pour le désagrément causé.</p>
               <p><strong>Détails de la réservation :</strong></p>
               <ul>
-                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+                <li><strong>ID de la réservation :</strong> ${
+                  reservation._id
+                }</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(
+                  timeSlot.startTime
+                ).toLocaleString("fr-FR", {
+                  timeZone: "Africa/Tunis",
+                })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+              timeZone: "Africa/Tunis",
+            })}</li>
                 <li><strong>Statut :</strong> Refusée</li>
               </ul>
             </body>
@@ -552,8 +633,16 @@ exports.updateReservationStatus = async (req, res) => {
               <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
               <p><strong>Détails de la réservation :</strong></p>
               <ul>
-                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</li>
+                <li><strong>ID de la réservation :</strong> ${
+                  reservation._id
+                }</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(
+                  timeSlot.startTime
+                ).toLocaleString("fr-FR", {
+                  timeZone: "Africa/Tunis",
+                })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+              timeZone: "Africa/Tunis",
+            })}</li>
                 <li><strong>Statut :</strong> Refusée</li>
               </ul>
             </body>
@@ -570,9 +659,14 @@ exports.updateReservationStatus = async (req, res) => {
     }
 
     // Send response
-    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
+    res
+      .status(200)
+      .json({ message: "Statut de la réservation mis à jour avec succès." });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
+    console.error(
+      "Erreur lors de la mise à jour du statut de la réservation :",
+      error
+    );
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
@@ -608,7 +702,11 @@ exports.deleteReservation = async (req, res) => {
     // Check if the associated time slot is in the past
     const timeSlot = await TimeSlot.findById(reservation.timeSlot);
     if (!timeSlot) {
-      return res.status(400).json({ message: "Créneau horaire non trouvé pour cette réservation." });
+      return res
+        .status(400)
+        .json({
+          message: "Créneau horaire non trouvé pour cette réservation.",
+        });
     }
 
     // Move reservation to DeletedReservation
@@ -670,13 +768,20 @@ exports.deleteReservation = async (req, res) => {
           .map((slot) => ({
             updateOne: {
               filter: { _id: slot._id },
-              update: { status: "available", isAvailable: true, blockedBy: null },
+              update: {
+                status: "available",
+                isAvailable: true,
+                blockedBy: null,
+              },
             },
           }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
-          console.log("Unblocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+          console.log(
+            "Unblocked parallel time slots:",
+            bulkOps.map((op) => op.updateOne.filter._id)
+          );
         }
       }
     }
@@ -744,17 +849,27 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate status
     if (!["approved", "declined"].includes(status)) {
-      return res.status(400).json({ message: "Statut invalide. Utilisez 'approved' ou 'declined'." });
+      return res
+        .status(400)
+        .json({
+          message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
+        });
     }
 
     // Fetch the reservation based on source
     let reservation;
     if (source === "reservations") {
-      reservation = await Reservation.findById(reservationId).populate("timeSlot chapter");
+      reservation = await Reservation.findById(reservationId).populate(
+        "timeSlot chapter"
+      );
     } else if (source === "approvedReservations") {
-      reservation = await ApprovedReservation.findById(reservationId).populate("timeSlot chapter");
+      reservation = await ApprovedReservation.findById(reservationId).populate(
+        "timeSlot chapter"
+      );
     } else if (source === "declinedReservations") {
-      reservation = await DeclinedReservation.findById(reservationId).populate("timeSlot chapter");
+      reservation = await DeclinedReservation.findById(reservationId).populate(
+        "timeSlot chapter"
+      );
     } else {
       return res.status(400).json({ message: "Source invalide spécifié." });
     }
@@ -768,7 +883,11 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate if time slot exists
     if (!timeSlot) {
-      return res.status(400).json({ message: "Créneau horaire non trouvé pour cette réservation." });
+      return res
+        .status(400)
+        .json({
+          message: "Créneau horaire non trouvé pour cette réservation.",
+        });
     }
 
     if (status === "approved") {
@@ -806,7 +925,7 @@ exports.updateReservationStatus = async (req, res) => {
               startTime: { $lte: timeSlot.startTime },
               endTime: { $gte: timeSlot.startTime },
             },
-      
+
             {
               startTime: { $gte: timeSlot.startTime },
               endTime: { $lte: timeSlot.endTime },
@@ -839,8 +958,14 @@ exports.updateReservationStatus = async (req, res) => {
             <p>Votre réservation a été approuvée avec succès.</p>
             <p><strong>Détails de la réservation :</strong></p>
             <ul>
-              <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-              <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+              <li><strong>ID de la réservation :</strong> ${
+                reservation._id
+              }</li>
+              <li><strong>Créneau horaire :</strong> ${new Date(
+                timeSlot.startTime
+              ).toLocaleString()} - ${new Date(
+        timeSlot.endTime
+      ).toLocaleString()}</li>
               <li><strong>Statut :</strong> Approuvée</li>
             </ul>
             <p>Merci d'avoir choisi notre service !</p>
@@ -890,7 +1015,7 @@ exports.updateReservationStatus = async (req, res) => {
               startTime: { $lte: timeSlot.startTime },
               endTime: { $gte: timeSlot.startTime },
             },
-        
+
             {
               startTime: { $gte: timeSlot.startTime },
               endTime: { $lte: timeSlot.endTime },
@@ -900,11 +1025,20 @@ exports.updateReservationStatus = async (req, res) => {
 
         // Update the status of these parallel time slots to 'available' if they were blocked by this reservation
         const bulkOps = parallelTimeSlots
-          .filter((slot) => slot.status === "blocked" && slot.blockedBy && slot.blockedBy.toString() === reservationId)
+          .filter(
+            (slot) =>
+              slot.status === "blocked" &&
+              slot.blockedBy &&
+              slot.blockedBy.toString() === reservationId
+          )
           .map((slot) => ({
             updateOne: {
               filter: { _id: slot._id },
-              update: {  status: "available", isAvailable: true, blockedBy: null },
+              update: {
+                status: "available",
+                isAvailable: true,
+                blockedBy: null,
+              },
             },
           }));
 
@@ -926,8 +1060,14 @@ exports.updateReservationStatus = async (req, res) => {
               <p>Nous nous excusons pour le désagrément causé.</p>
               <p><strong>Détails de la réservation :</strong></p>
               <ul>
-                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+                <li><strong>ID de la réservation :</strong> ${
+                  reservation._id
+                }</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(
+                  timeSlot.startTime
+                ).toLocaleString()} - ${new Date(
+              timeSlot.endTime
+            ).toLocaleString()}</li>
                 <li><strong>Statut :</strong> Refusée</li>
               </ul>
             </body>
@@ -943,8 +1083,14 @@ exports.updateReservationStatus = async (req, res) => {
               <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
               <p><strong>Détails de la réservation :</strong></p>
               <ul>
-                <li><strong>ID de la réservation :</strong> ${reservation._id}</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString()} - ${new Date(timeSlot.endTime).toLocaleString()}</li>
+                <li><strong>ID de la réservation :</strong> ${
+                  reservation._id
+                }</li>
+                <li><strong>Créneau horaire :</strong> ${new Date(
+                  timeSlot.startTime
+                ).toLocaleString()} - ${new Date(
+              timeSlot.endTime
+            ).toLocaleString()}</li>
                 <li><strong>Statut :</strong> Refusée</li>
               </ul>
             </body>
@@ -961,9 +1107,14 @@ exports.updateReservationStatus = async (req, res) => {
     }
 
     // Send response
-    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
+    res
+      .status(200)
+      .json({ message: "Statut de la réservation mis à jour avec succès." });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
+    console.error(
+      "Erreur lors de la mise à jour du statut de la réservation :",
+      error
+    );
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
@@ -1021,11 +1172,9 @@ exports.deleteReservation = async (req, res) => {
         await DeclinedReservation.findByIdAndDelete(reservationId);
       }
 
-      return res
-        .status(200)
-        .json({
-          message: "Reservation deleted and moved to DeletedReservation.",
-        });
+      return res.status(200).json({
+        message: "Reservation deleted and moved to DeletedReservation.",
+      });
     } else {
       // If the time slot is not in the past, just delete the reservation
       await DeletedReservation.create({
@@ -1049,11 +1198,9 @@ exports.deleteReservation = async (req, res) => {
         await DeclinedReservation.findByIdAndDelete(reservationId);
       }
 
-      return res
-        .status(200)
-        .json({
-          message: "Reservation deleted and moved to DeletedReservation.",
-        });
+      return res.status(200).json({
+        message: "Reservation deleted and moved to DeletedReservation.",
+      });
     }
   } catch (error) {
     console.error("Error deleting reservation:", error);

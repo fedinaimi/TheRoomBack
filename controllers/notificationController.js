@@ -1,6 +1,4 @@
-// controllers/notificationController.js
 const Notification = require("../models/Notifications");
-
 
 // Fetch all notifications
 exports.getAllNotifications = async (req, res) => {
@@ -17,7 +15,11 @@ exports.getAllNotifications = async (req, res) => {
 exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
-    const notification = await Notification.findByIdAndUpdate(id, { read: true }, { new: true });
+    const notification = await Notification.findByIdAndUpdate(
+      id,
+      { isRead: true },
+      { new: true }
+    );
     if (!notification) {
       return res.status(404).json({ message: "Notification not found" });
     }

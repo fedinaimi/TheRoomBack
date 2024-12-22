@@ -18,17 +18,30 @@ const scenarioRoutes = require("./routes/scenarioRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
 const notificationRoutes = require('./routes/notificationRoutes');
 
-
-
 const app = express();
 const server = http.createServer(app);
+
+// Initialize Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: "*", // Update with frontend URL
+    origin: "*", // Replace with your frontend URL in production
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   },
 });
 
+// Make io accessible globally
+global.io = io;
+
+// Socket.IO connection handler
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
+  
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+// Middleware to handle errors from multer (if used)
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     // Multer-specific errors
@@ -39,18 +52,22 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
 app.use(cors());
 
 // Middleware
 app.use(morgan("dev"));
-app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE" }));
+app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE,OPTIONS" }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(helmet());
+
+// Logging middleware
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Body:`, req.body);
   next();
 });
+
 // Routes
 app.use("/api", userRoutes);
 app.use("/api/chapters", chapterRoutes);
@@ -65,14 +82,5 @@ mongoose.connect(process.env.DB_URL, {
   useUnifiedTopology: true,
 }).then(() => {
   console.log("MongoDB connected");
-  server.listen(5000, () => console.log("Server running on port 5000"));
+  server.listen(process.env.PORT || 5000, () => console.log(`Server running on port ${process.env.PORT || 5000}`));
 }).catch((err) => console.error(err));
-
-// Global Socket.IO instance
-global.io = io;
-io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-  });
-});
