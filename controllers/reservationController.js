@@ -1119,13 +1119,12 @@ exports.updateReservationStatus = async (req, res) => {
   }
 };
 
+// Delete a reservation
 exports.deleteReservation = async (req, res) => {
   const { source, reservationId } = req.params;
 
   if (!source || !reservationId) {
-    return res
-      .status(400)
-      .json({ message: "Source or reservation ID is missing." });
+    return res.status(400).json({ message: "Source or reservation ID is missing." });
   }
 
   try {
@@ -1146,67 +1145,113 @@ exports.deleteReservation = async (req, res) => {
       return res.status(404).json({ message: "Reservation not found." });
     }
 
-    // Check if the associated time slot is in the past
+    // Check if the associated time slot exists
     const timeSlot = await TimeSlot.findById(reservation.timeSlot);
-    if (timeSlot && new Date(timeSlot.startTime) < new Date()) {
-      // If the time slot is in the past, move to DeletedReservation
-      await DeletedReservation.create({
-        scenario: reservation.scenario,
-        chapter: reservation.chapter,
-        timeSlot: reservation.timeSlot,
-        name: reservation.name,
-        email: reservation.email,
-        phone: reservation.phone,
-        language: reservation.language,
-        createdAt: reservation.createdAt,
-        status: "deleted",
-        people: reservation.people,
-      });
-
-      // Delete the reservation from the original collection
-      if (source === "reservations") {
-        await Reservation.findByIdAndDelete(reservationId);
-      } else if (source === "approvedReservations") {
-        await ApprovedReservation.findByIdAndDelete(reservationId);
-      } else if (source === "declinedReservations") {
-        await DeclinedReservation.findByIdAndDelete(reservationId);
-      }
-
-      return res.status(200).json({
-        message: "Reservation deleted and moved to DeletedReservation.",
-      });
-    } else {
-      // If the time slot is not in the past, just delete the reservation
-      await DeletedReservation.create({
-        scenario: reservation.scenario,
-        chapter: reservation.chapter,
-        timeSlot: reservation.timeSlot,
-        name: reservation.name,
-        email: reservation.email,
-        phone: reservation.phone,
-        language: reservation.language,
-        createdAt: reservation.createdAt,
-        status: "deleted",
-        people: reservation.people,
-      });
-
-      if (source === "reservations") {
-        await Reservation.findByIdAndDelete(reservationId);
-      } else if (source === "approvedReservations") {
-        await ApprovedReservation.findByIdAndDelete(reservationId);
-      } else if (source === "declinedReservations") {
-        await DeclinedReservation.findByIdAndDelete(reservationId);
-      }
-
-      return res.status(200).json({
-        message: "Reservation deleted and moved to DeletedReservation.",
+    if (!timeSlot) {
+      return res.status(400).json({
+        message: "Créneau horaire non trouvé pour cette réservation.",
       });
     }
+
+    // Move reservation to DeletedReservation
+    const deletedReservation = new DeletedReservation({
+      scenario: reservation.scenario,
+      chapter: reservation.chapter,
+      timeSlot: reservation.timeSlot,
+      name: reservation.name,
+      email: reservation.email,
+      phone: reservation.phone,
+      language: reservation.language,
+      createdAt: reservation.createdAt,
+      status: "deleted",
+      people: reservation.people,
+    });
+    await deletedReservation.save();
+    console.log("Reservation moved to DeletedReservation:", deletedReservation._id);
+
+    // Update time slot status based on reservation source
+    if (source === "approvedReservations") {
+      timeSlot.status = "available";
+      timeSlot.isAvailable = true;
+      timeSlot.blockedBy = null;
+      await timeSlot.save();
+    } else if (source === "reservations" || source === "declinedReservations") {
+      timeSlot.status = "available";
+      timeSlot.isAvailable = true;
+      timeSlot.blockedBy = null;
+      await timeSlot.save();
+    }
+
+    // Unblock parallel time slots if necessary
+    const scenarioDoc = await Scenario.findById(reservation.scenario);
+    const chapterDoc = await Chapter.findById(reservation.chapter);
+    if (scenarioDoc && chapterDoc) {
+      const parallelChapters = await Chapter.find({
+        scenario: scenarioDoc._id,
+        _id: { $ne: chapterDoc._id },
+      });
+
+      if (parallelChapters.length > 0) {
+        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
+
+        const parallelTimeSlots = await TimeSlot.find({
+          chapter: { $in: parallelChapterIds },
+          $and: [
+            { startTime: { $lt: timeSlot.endTime } },
+            { endTime: { $gt: timeSlot.startTime } },
+          ],
+        });
+
+        // Determine the correct identifier for blockedBy based on the source
+        let blockedById = reservationId; // Default for 'reservations' and 'declinedReservations'
+
+        if (source === "approvedReservations") {
+          blockedById = reservationId; // For 'approvedReservations', blockedBy was set to ApprovedReservation._id
+        }
+
+        const bulkOps = parallelTimeSlots
+          .filter(
+            (slot) =>
+              slot.status === "blocked" &&
+              slot.blockedBy &&
+              slot.blockedBy.toString() === blockedById
+          )
+          .map((slot) => ({
+            updateOne: {
+              filter: { _id: slot._id },
+              update: {
+                status: "available",
+                isAvailable: true,
+                blockedBy: null,
+              },
+            },
+          }));
+
+        if (bulkOps.length > 0) {
+          await TimeSlot.bulkWrite(bulkOps);
+          console.log("Unblocked parallel time slots:", bulkOps.map((op) => op.updateOne.filter._id));
+        }
+      }
+    }
+
+    // Delete the reservation from the original source
+    if (source === "reservations") {
+      await Reservation.findByIdAndDelete(reservationId);
+    } else if (source === "approvedReservations") {
+      await ApprovedReservation.findByIdAndDelete(reservationId);
+    } else if (source === "declinedReservations") {
+      await DeclinedReservation.findByIdAndDelete(reservationId);
+    }
+
+    return res.status(200).json({
+      message: "Réservation supprimée et déplacée vers DeletedReservation.",
+    });
   } catch (error) {
-    console.error("Error deleting reservation:", error);
-    res.status(500).json({ message: "Internal server error." });
+    console.error("Erreur lors de la suppression de la réservation :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
+
 
 // Get reservation by ID (admin)
 exports.getReservationById = async (req, res) => {
