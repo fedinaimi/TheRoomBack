@@ -235,7 +235,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
             <p>L'équipe de Réservation</p>
           </div>
           <div class="footer">
-            &copy; ${new Date().getFullYear()} Votre Société - Tous droits réservés.
+            &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
           </div>
         </div>
       </body>
@@ -301,7 +301,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
             </a>
           </div>
           <div class="footer">
-            &copy; ${new Date().getFullYear()} Votre Société - Tous droits réservés.
+            &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
           </div>
         </div>
       </body>
@@ -397,33 +397,33 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate status
     if (!["approved", "declined"].includes(status)) {
-      return res
-        .status(400)
-        .json({
-          message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
-        });
+      console.warn(`Invalid status: ${status}`);
+      return res.status(400).json({
+        message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
+      });
     }
 
-    // Fetch the reservation based on source
-    let reservation;
+    // Determine the correct Reservation model based on source
+    let ReservationModel;
     if (source === "reservations") {
-      reservation = await Reservation.findById(reservationId).populate(
-        "timeSlot chapter scenario"
-      );
+      ReservationModel = Reservation;
     } else if (source === "approvedReservations") {
-      reservation = await ApprovedReservation.findById(reservationId).populate(
-        "timeSlot chapter scenario"
-      );
+      ReservationModel = ApprovedReservation;
     } else if (source === "declinedReservations") {
-      reservation = await DeclinedReservation.findById(reservationId).populate(
-        "timeSlot chapter scenario"
-      );
+      ReservationModel = DeclinedReservation;
     } else {
+      console.warn(`Invalid source specified: ${source}`);
       return res.status(400).json({ message: "Source invalide spécifié." });
     }
 
+    // Fetch the reservation based on source
+    const reservation = await ReservationModel.findById(reservationId)
+      .populate("timeSlot chapter scenario")
+      .exec();
+
     // Validate if reservation exists
     if (!reservation) {
+      console.warn(`Reservation not found: ID ${reservationId}`);
       return res.status(404).json({ message: "Réservation non trouvée." });
     }
 
@@ -431,11 +431,19 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate if time slot exists
     if (!timeSlot) {
-      return res
-        .status(400)
-        .json({
-          message: "Créneau horaire non trouvé pour cette réservation.",
-        });
+      console.warn(`Time slot not found for reservation: ID ${reservationId}`);
+      return res.status(400).json({
+        message: "Créneau horaire non trouvé pour cette réservation.",
+      });
+    }
+
+    // Fetch related Scenario and Chapter documents
+    const scenarioDoc = await Scenario.findById(reservation.scenario).exec();
+    const chapterDoc = await Chapter.findById(reservation.chapter).exec();
+
+    if (!scenarioDoc || !chapterDoc) {
+      console.warn(`Scenario or Chapter not found for reservation: ID ${reservationId}`);
+      return res.status(404).json({ message: "Scénario ou Chapitre introuvable." });
     }
 
     if (status === "approved") {
@@ -445,11 +453,13 @@ exports.updateReservationStatus = async (req, res) => {
         status: "approved",
       });
       await approvedReservation.save();
+      console.log(`Reservation approved and moved: ID ${approvedReservation._id}`);
 
       // Update time slot to "booked"
       timeSlot.status = "booked";
       timeSlot.isAvailable = false;
       await timeSlot.save();
+      console.log(`Time slot updated to 'booked': ID ${timeSlot._id}`);
 
       // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
       const scenarioId = reservation.scenario._id;
@@ -468,25 +478,22 @@ exports.updateReservationStatus = async (req, res) => {
         // Find all time slots in parallel chapters that overlap with the selected time slot
         const parallelTimeSlots = await TimeSlot.find({
           chapter: { $in: parallelChapterIds },
-          $and: [
-            { startTime: { $lt: timeSlot.endTime } }, // Overlaps with current time slot's end
-            { endTime: { $gt: timeSlot.startTime } }, // Overlaps with current time slot's start
-          ],
+          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
+          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
+          status: "available", // Only available slots can be blocked
         });
 
-        // Update the status of these parallel time slots to 'blocked' if they are 'available'
-        const bulkOps = parallelTimeSlots
-          .filter((slot) => slot.status === "available")
-          .map((slot) => ({
-            updateOne: {
-              filter: { _id: slot._id },
-              update: {
-                status: "blocked",
-                blockedBy: approvedReservation._id,
-                isAvailable: false,
-              },
+        // Update the status of these parallel time slots to 'blocked'
+        const bulkOps = parallelTimeSlots.map((slot) => ({
+          updateOne: {
+            filter: { _id: slot._id },
+            update: {
+              status: "blocked",
+              blockedBy: approvedReservation._id,
+              isAvailable: false,
             },
-          }));
+          },
+        }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
@@ -498,32 +505,53 @@ exports.updateReservationStatus = async (req, res) => {
       }
 
       // Send approval email to customer
-      const emailContent = `
+      const approvalEmailContent = `
         <html>
-          <head><title>Reservation Approuvée</title></head>
-          <body style="font-family: Arial, sans-serif; color: #333;">
-            <h1 style="text-align: center; color: #4CAF50;">Votre réservation a été approuvée</h1>
-            <p>Bonjour ${reservation.name},</p>
-            <p>Votre réservation a été approuvée avec succès.</p>
-            <p><strong>Détails de la réservation :</strong></p>
-            <ul>
-              <li><strong>ID de la réservation :</strong> ${
-                reservation._id
-              }</li>
-              <li><strong>Créneau horaire :</strong> ${new Date(
-                timeSlot.startTime
-              ).toLocaleString("fr-FR", {
-                timeZone: "Africa/Tunis",
-              })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-        timeZone: "Africa/Tunis",
-      })}</li>
-              <li><strong>Statut :</strong> Approuvée</li>
-            </ul>
-            <p>Merci d'avoir choisi notre service !</p>
+          <head>
+            <title>Réservation Approuvée</title>
+            <meta charset="UTF-8"/>
+            <style>
+              body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
+              .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+              .header { background:#4CAF50; color:#ffffff; padding:20px; text-align:center; }
+              .header h1 { margin:0; font-size:24px; }
+              .content { padding:20px; }
+              .content h2 { margin-top:0; }
+              .details p { margin:5px 0; }
+              .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+            </style>
+          </head>
+          <body>
+            <div class="email-container">
+              <div class="header">
+                <h1>Votre réservation a été approuvée</h1>
+              </div>
+              <div class="content">
+                <h2>Bonjour ${reservation.name},</h2>
+                <p>Votre réservation a été approuvée avec succès. Voici les détails :</p>
+                <div class="details">
+                  <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+                  <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
+                    timeZone: "Africa/Tunis",
+                    hour12: false,
+                  })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+                    timeZone: "Africa/Tunis",
+                    hour12: false,
+                  })}</p>
+                  <p><strong>Statut :</strong> Approuvée</p>
+                </div>
+                <p>Merci d'avoir choisi notre service !</p>
+                <p>Après avoir joué, partagez votre expérience et laissez votre avis sur notre page Google Maps : <a href="https://www.google.com/maps/place/The+Room+Escape+Game/@36.8536969,10.1663538,17z/data=!3m1!4b1!4m6!3m5!1s0x12fd33563fb1afad:0xd1e0353f2a6e4df9!8m2!3d36.8536969!4d10.1689287!16s%2Fg%2F11f57szbtq?entry=tts&g_ep=EgoyMDI0MTIxMS4wIPu8ASoASAFQAw%3D%3D" target="_blank">The Room Escape Game</a>.</p>
+              </div>
+              <div class="footer">
+                &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+              </div>
+            </div>
           </body>
         </html>
       `;
-      await sendEmail(reservation.email, "Réservation Approuvée", emailContent);
+      await sendEmail(reservation.email, "Réservation Approuvée", approvalEmailContent);
+      console.log(`Approval email sent to customer: ${reservation.email}`);
 
       // Remove the reservation from the original source
       if (source === "declinedReservations") {
@@ -538,11 +566,13 @@ exports.updateReservationStatus = async (req, res) => {
         status: "declined",
       });
       await declinedReservation.save();
+      console.log(`Reservation declined and moved: ID ${declinedReservation._id}`);
 
       // Update time slot to "available"
       timeSlot.status = "available";
       timeSlot.isAvailable = true;
       await timeSlot.save();
+      console.log(`Time slot updated to 'available': ID ${timeSlot._id}`);
 
       // **Fixed Logic**: Unblock only overlapping parallel time slots in other chapters of the same scenario
       const scenarioId = reservation.scenario._id;
@@ -561,30 +591,23 @@ exports.updateReservationStatus = async (req, res) => {
         // Find all time slots in parallel chapters that overlap with the selected time slot
         const parallelTimeSlots = await TimeSlot.find({
           chapter: { $in: parallelChapterIds },
-          $and: [
-            { startTime: { $lt: timeSlot.endTime } }, // Overlaps with current time slot's end
-            { endTime: { $gt: timeSlot.startTime } }, // Overlaps with current time slot's start
-          ],
+          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
+          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
+          status: "blocked",
+          blockedBy: reservationId, // Ensure only slots blocked by this reservation are unblocked
         });
 
-        // Update the status of these parallel time slots to 'available' if they were blocked by this reservation
-        const bulkOps = parallelTimeSlots
-          .filter(
-            (slot) =>
-              slot.status === "blocked" &&
-              slot.blockedBy &&
-              slot.blockedBy.toString() === reservationId
-          )
-          .map((slot) => ({
-            updateOne: {
-              filter: { _id: slot._id },
-              update: {
-                status: "available",
-                isAvailable: true,
-                blockedBy: null,
-              },
+        // Update the status of these parallel time slots to 'available'
+        const bulkOps = parallelTimeSlots.map((slot) => ({
+          updateOne: {
+            filter: { _id: slot._id },
+            update: {
+              status: "available",
+              isAvailable: true,
+              blockedBy: null,
             },
-          }));
+          },
+        }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
@@ -596,59 +619,98 @@ exports.updateReservationStatus = async (req, res) => {
       }
 
       // Send decline email to customer
-      const emailContent =
+      const declineEmailContent =
         source === "approvedReservations"
           ? `
           <html>
-            <head><title>Reservation Refusée</title></head>
-            <body style="font-family: Arial, sans-serif; color: #333;">
-              <h1 style="text-align: center; color: #FF5733;">Réservation Refusée en raison de Problèmes Techniques</h1>
-              <p>Bonjour ${reservation.name},</p>
-              <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
-              <p>Nous nous excusons pour le désagrément causé.</p>
-              <p><strong>Détails de la réservation :</strong></p>
-              <ul>
-                <li><strong>ID de la réservation :</strong> ${
-                  reservation._id
-                }</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(
-                  timeSlot.startTime
-                ).toLocaleString("fr-FR", {
-                  timeZone: "Africa/Tunis",
-                })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-              timeZone: "Africa/Tunis",
-            })}</li>
-                <li><strong>Statut :</strong> Refusée</li>
-              </ul>
+            <head>
+              <title>Réservation Refusée</title>
+              <meta charset="UTF-8"/>
+              <style>
+                body { font-family: Arial, sans-serif; color: #333; background:#f5f5f5; margin:0; padding:0; }
+                .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+                .header { background:#FF5733; color:#ffffff; padding:20px; text-align:center; }
+                .header h1 { margin:0; font-size:24px; }
+                .content { padding:20px; }
+                .content h2 { margin-top:0; }
+                .details p { margin:5px 0; }
+                .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+              </style>
+            </head>
+            <body>
+              <div class="email-container">
+                <div class="header">
+                  <h1>Réservation Refusée</h1>
+                </div>
+                <div class="content">
+                  <h2>Bonjour ${reservation.name},</h2>
+                  <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
+                  <div class="details">
+                    <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+                    <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
+                      timeZone: "Africa/Tunis",
+                      hour12: false,
+                    })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+                      timeZone: "Africa/Tunis",
+                      hour12: false,
+                    })}</p>
+                    <p><strong>Statut :</strong> Refusée</p>
+                  </div>
+                  <p>Nous nous excusons pour le désagrément causé.</p>
+                </div>
+                <div class="footer">
+                  &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+                </div>
+              </div>
             </body>
           </html>
         `
           : `
           <html>
-            <head><title>Reservation Refusée</title></head>
-            <body style="font-family: Arial, sans-serif; color: #333;">
-              <h1 style="text-align: center; color: #FF5733;">Réservation Refusée</h1>
-              <p>Bonjour ${reservation.name},</p>
-              <p>Votre réservation a été refusée.</p>
-              <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
-              <p><strong>Détails de la réservation :</strong></p>
-              <ul>
-                <li><strong>ID de la réservation :</strong> ${
-                  reservation._id
-                }</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(
-                  timeSlot.startTime
-                ).toLocaleString("fr-FR", {
-                  timeZone: "Africa/Tunis",
-                })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-              timeZone: "Africa/Tunis",
-            })}</li>
-                <li><strong>Statut :</strong> Refusée</li>
-              </ul>
+            <head>
+              <title>Réservation Refusée</title>
+              <meta charset="UTF-8"/>
+              <style>
+                body { font-family: Arial, sans-serif; color: #333; background:#f5f5f5; margin:0; padding:0; }
+                .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+                .header { background:#FF5733; color:#ffffff; padding:20px; text-align:center; }
+                .header h1 { margin:0; font-size:24px; }
+                .content { padding:20px; }
+                .content h2 { margin-top:0; }
+                .details p { margin:5px 0; }
+                .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+              </style>
+            </head>
+            <body>
+              <div class="email-container">
+                <div class="header">
+                  <h1>Réservation Refusée</h1>
+                </div>
+                <div class="content">
+                  <h2>Bonjour ${reservation.name},</h2>
+                  <p>Votre réservation a été refusée.</p>
+                  <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
+                  <div class="details">
+                    <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+                    <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
+                      timeZone: "Africa/Tunis",
+                      hour12: false,
+                    })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+                      timeZone: "Africa/Tunis",
+                      hour12: false,
+                    })}</p>
+                    <p><strong>Statut :</strong> Refusée</p>
+                  </div>
+                </div>
+                <div class="footer">
+                  &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+                </div>
+              </div>
             </body>
           </html>
         `;
       await sendEmail(reservation.email, "Réservation Refusée", emailContent);
+      console.log(`Decline email sent to customer: ${reservation.email}`);
 
       // Remove the reservation from the original source
       if (source === "approvedReservations") {
@@ -659,14 +721,9 @@ exports.updateReservationStatus = async (req, res) => {
     }
 
     // Send response
-    res
-      .status(200)
-      .json({ message: "Statut de la réservation mis à jour avec succès." });
+    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
   } catch (error) {
-    console.error(
-      "Erreur lors de la mise à jour du statut de la réservation :",
-      error
-    );
+    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
@@ -842,6 +899,11 @@ exports.getAllReservations = async (req, res) => {
   }
 };
 
+// src/controllers/reservationController.js
+
+
+
+// Update reservation status (approve or decline)
 exports.updateReservationStatus = async (req, res) => {
   try {
     const { status } = req.body; // 'approved' or 'declined'
@@ -849,33 +911,33 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate status
     if (!["approved", "declined"].includes(status)) {
-      return res
-        .status(400)
-        .json({
-          message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
-        });
+      console.warn(`Invalid status: ${status}`);
+      return res.status(400).json({
+        message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
+      });
     }
 
-    // Fetch the reservation based on source
-    let reservation;
+    // Determine the correct Reservation model based on source
+    let ReservationModel;
     if (source === "reservations") {
-      reservation = await Reservation.findById(reservationId).populate(
-        "timeSlot chapter"
-      );
+      ReservationModel = Reservation;
     } else if (source === "approvedReservations") {
-      reservation = await ApprovedReservation.findById(reservationId).populate(
-        "timeSlot chapter"
-      );
+      ReservationModel = ApprovedReservation;
     } else if (source === "declinedReservations") {
-      reservation = await DeclinedReservation.findById(reservationId).populate(
-        "timeSlot chapter"
-      );
+      ReservationModel = DeclinedReservation;
     } else {
+      console.warn(`Invalid source specified: ${source}`);
       return res.status(400).json({ message: "Source invalide spécifié." });
     }
 
+    // Fetch the reservation based on source
+    const reservation = await ReservationModel.findById(reservationId)
+      .populate("timeSlot chapter scenario")
+      .exec();
+
     // Validate if reservation exists
     if (!reservation) {
+      console.warn(`Reservation not found: ID ${reservationId}`);
       return res.status(404).json({ message: "Réservation non trouvée." });
     }
 
@@ -883,11 +945,19 @@ exports.updateReservationStatus = async (req, res) => {
 
     // Validate if time slot exists
     if (!timeSlot) {
-      return res
-        .status(400)
-        .json({
-          message: "Créneau horaire non trouvé pour cette réservation.",
-        });
+      console.warn(`Time slot not found for reservation: ID ${reservationId}`);
+      return res.status(400).json({
+        message: "Créneau horaire non trouvé pour cette réservation.",
+      });
+    }
+
+    // Fetch related Scenario and Chapter documents
+    const scenarioDoc = await Scenario.findById(reservation.scenario).exec();
+    const chapterDoc = await Chapter.findById(reservation.chapter).exec();
+
+    if (!scenarioDoc || !chapterDoc) {
+      console.warn(`Scenario or Chapter not found for reservation: ID ${reservationId}`);
+      return res.status(404).json({ message: "Scénario ou Chapitre introuvable." });
     }
 
     if (status === "approved") {
@@ -897,14 +967,16 @@ exports.updateReservationStatus = async (req, res) => {
         status: "approved",
       });
       await approvedReservation.save();
+      console.log(`Reservation approved and moved: ID ${approvedReservation._id}`);
 
       // Update time slot to "booked"
       timeSlot.status = "booked";
       timeSlot.isAvailable = false;
       await timeSlot.save();
+      console.log(`Time slot updated to 'booked': ID ${timeSlot._id}`);
 
-      // **New Logic**: Block parallel time slots in other chapters of the same scenario
-      const scenarioId = reservation.scenario;
+      // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
+      const scenarioId = reservation.scenario._id;
       const chapterId = reservation.chapter._id;
 
       // Find all chapters in the same scenario excluding the current one
@@ -920,59 +992,36 @@ exports.updateReservationStatus = async (req, res) => {
         // Find all time slots in parallel chapters that overlap with the selected time slot
         const parallelTimeSlots = await TimeSlot.find({
           chapter: { $in: parallelChapterIds },
-          $or: [
-            {
-              startTime: { $lte: timeSlot.startTime },
-              endTime: { $gte: timeSlot.startTime },
-            },
-
-            {
-              startTime: { $gte: timeSlot.startTime },
-              endTime: { $lte: timeSlot.endTime },
-            },
-          ],
+          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
+          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
+          status: "available", // Only available slots can be blocked
         });
 
-        // Update the status of these parallel time slots to 'blocked' if they are 'available'
-        const bulkOps = parallelTimeSlots
-          .filter((slot) => slot.status === "available")
-          .map((slot) => ({
-            updateOne: {
-              filter: { _id: slot._id },
-              update: { status: "blocked", blockedBy: approvedReservation._id },
+        // Update the status of these parallel time slots to 'blocked'
+        const bulkOps = parallelTimeSlots.map((slot) => ({
+          updateOne: {
+            filter: { _id: slot._id },
+            update: {
+              status: "blocked",
+              blockedBy: approvedReservation._id,
+              isAvailable: false,
             },
-          }));
+          },
+        }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
+          console.log(
+            "Blocked parallel time slots:",
+            bulkOps.map((op) => op.updateOne.filter._id)
+          );
         }
       }
 
       // Send approval email to customer
-      const emailContent = `
-        <html>
-          <head><title>Reservation Approved</title></head>
-          <body style="font-family: Arial, sans-serif; color: #333;">
-            <h1 style="text-align: center; color: #4CAF50;">Votre réservation a été approuvée</h1>
-            <p>Bonjour ${reservation.name},</p>
-            <p>Votre réservation a été approuvée avec succès.</p>
-            <p><strong>Détails de la réservation :</strong></p>
-            <ul>
-              <li><strong>ID de la réservation :</strong> ${
-                reservation._id
-              }</li>
-              <li><strong>Créneau horaire :</strong> ${new Date(
-                timeSlot.startTime
-              ).toLocaleString()} - ${new Date(
-        timeSlot.endTime
-      ).toLocaleString()}</li>
-              <li><strong>Statut :</strong> Approuvée</li>
-            </ul>
-            <p>Merci d'avoir choisi notre service !</p>
-          </body>
-        </html>
-      `;
-      await sendEmail(reservation.email, "Réservation Approuvée", emailContent);
+      const approvalEmailContent = generateApprovalEmailContent(reservation, timeSlot, scenarioDoc, chapterDoc);
+      await sendEmail(reservation.email, "Réservation Approuvée", approvalEmailContent);
+      console.log(`Approval email sent to customer: ${reservation.email}`);
 
       // Remove the reservation from the original source
       if (source === "declinedReservations") {
@@ -987,14 +1036,16 @@ exports.updateReservationStatus = async (req, res) => {
         status: "declined",
       });
       await declinedReservation.save();
+      console.log(`Reservation declined and moved: ID ${declinedReservation._id}`);
 
       // Update time slot to "available"
       timeSlot.status = "available";
       timeSlot.isAvailable = true;
       await timeSlot.save();
+      console.log(`Time slot updated to 'available': ID ${timeSlot._id}`);
 
-      // **New Logic**: Unblock parallel time slots in other chapters of the same scenario
-      const scenarioId = reservation.scenario;
+      // **Fixed Logic**: Unblock only overlapping parallel time slots in other chapters of the same scenario
+      const scenarioId = reservation.scenario._id;
       const chapterId = reservation.chapter._id;
 
       // Find all chapters in the same scenario excluding the current one
@@ -1010,93 +1061,37 @@ exports.updateReservationStatus = async (req, res) => {
         // Find all time slots in parallel chapters that overlap with the selected time slot
         const parallelTimeSlots = await TimeSlot.find({
           chapter: { $in: parallelChapterIds },
-          $or: [
-            {
-              startTime: { $lte: timeSlot.startTime },
-              endTime: { $gte: timeSlot.startTime },
-            },
-
-            {
-              startTime: { $gte: timeSlot.startTime },
-              endTime: { $lte: timeSlot.endTime },
-            },
-          ],
+          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
+          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
+          status: "blocked",
+          blockedBy: reservationId, // Ensure only slots blocked by this reservation are unblocked
         });
 
-        // Update the status of these parallel time slots to 'available' if they were blocked by this reservation
-        const bulkOps = parallelTimeSlots
-          .filter(
-            (slot) =>
-              slot.status === "blocked" &&
-              slot.blockedBy &&
-              slot.blockedBy.toString() === reservationId
-          )
-          .map((slot) => ({
-            updateOne: {
-              filter: { _id: slot._id },
-              update: {
-                status: "available",
-                isAvailable: true,
-                blockedBy: null,
-              },
+        // Update the status of these parallel time slots to 'available'
+        const bulkOps = parallelTimeSlots.map((slot) => ({
+          updateOne: {
+            filter: { _id: slot._id },
+            update: {
+              status: "available",
+              isAvailable: true,
+              blockedBy: null,
             },
-          }));
+          },
+        }));
 
         if (bulkOps.length > 0) {
           await TimeSlot.bulkWrite(bulkOps);
+          console.log(
+            "Unblocked parallel time slots:",
+            bulkOps.map((op) => op.updateOne.filter._id)
+          );
         }
       }
 
       // Send decline email to customer
-      const emailContent =
-        source === "approvedReservations"
-          ? `
-          <html>
-            <head><title>Reservation Declined</title></head>
-            <body style="font-family: Arial, sans-serif; color: #333;">
-              <h1 style="text-align: center; color: #FF5733;">Reservation Declined Due to Technical Issues</h1>
-              <p>Bonjour ${reservation.name},</p>
-              <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
-              <p>Nous nous excusons pour le désagrément causé.</p>
-              <p><strong>Détails de la réservation :</strong></p>
-              <ul>
-                <li><strong>ID de la réservation :</strong> ${
-                  reservation._id
-                }</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(
-                  timeSlot.startTime
-                ).toLocaleString()} - ${new Date(
-              timeSlot.endTime
-            ).toLocaleString()}</li>
-                <li><strong>Statut :</strong> Refusée</li>
-              </ul>
-            </body>
-          </html>
-        `
-          : `
-          <html>
-            <head><title>Reservation Declined</title></head>
-            <body style="font-family: Arial, sans-serif; color: #333;">
-              <h1 style="text-align: center; color: #FF5733;">Réservation Refusée</h1>
-              <p>Bonjour ${reservation.name},</p>
-              <p>Votre réservation a été refusée.</p>
-              <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
-              <p><strong>Détails de la réservation :</strong></p>
-              <ul>
-                <li><strong>ID de la réservation :</strong> ${
-                  reservation._id
-                }</li>
-                <li><strong>Créneau horaire :</strong> ${new Date(
-                  timeSlot.startTime
-                ).toLocaleString()} - ${new Date(
-              timeSlot.endTime
-            ).toLocaleString()}</li>
-                <li><strong>Statut :</strong> Refusée</li>
-              </ul>
-            </body>
-          </html>
-        `;
-      await sendEmail(reservation.email, "Réservation Refusée", emailContent);
+      const declineEmailContent = generateDeclineEmailContent(reservation, timeSlot, scenarioDoc, chapterDoc, source);
+      await sendEmail(reservation.email, "Réservation Refusée", declineEmailContent);
+      console.log(`Decline email sent to customer: ${reservation.email}`);
 
       // Remove the reservation from the original source
       if (source === "approvedReservations") {
@@ -1107,17 +1102,171 @@ exports.updateReservationStatus = async (req, res) => {
     }
 
     // Send response
-    res
-      .status(200)
-      .json({ message: "Statut de la réservation mis à jour avec succès." });
+    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
   } catch (error) {
-    console.error(
-      "Erreur lors de la mise à jour du statut de la réservation :",
-      error
-    );
+    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
+
+// Helper function to generate approval email content (matches createReservation template)
+const generateApprovalEmailContent = (reservation, timeSlot, scenarioDoc, chapterDoc) => {
+  const startTimeLocal = new Date(timeSlot.startTime).toLocaleString("fr-FR", {
+    timeZone: "Africa/Tunis",
+    hour12: false,
+  });
+  const endTimeLocal = new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+    timeZone: "Africa/Tunis",
+    hour12: false,
+  });
+
+  return `
+    <html>
+      <head>
+        <title>Réservation Approuvée</title>
+        <meta charset="UTF-8"/>
+        <style>
+          body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
+          .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+          .header { background:#4CAF50; color:#ffffff; padding:20px; text-align:center; }
+          .header h1 { margin:0; font-size:24px; }
+          .content { padding:20px; }
+          .content h2 { margin-top:0; }
+          .details p { margin:5px 0; }
+          .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+        </style>
+      </head>
+      <body>
+        <div class="email-container">
+          <div class="header">
+            <h1>Votre réservation a été approuvée</h1>
+          </div>
+          <div class="content">
+            <h2>Bonjour ${reservation.name},</h2>
+            <p>Nous sommes heureux de vous informer que votre réservation a été approuvée avec succès. Voici les détails :</p>
+            <div class="details">
+              <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+              <p><strong>Créneau horaire :</strong> Du ${startTimeLocal} au ${endTimeLocal}</p>
+              <p><strong>Statut :</strong> Approuvée</p>
+              <p><strong>Scénario :</strong> ${scenarioDoc.name}</p>
+              <p><strong>Chapitre :</strong> ${chapterDoc.name}</p>
+              <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
+            </div>
+            <p>Merci d'avoir choisi notre service !</p>
+          </div>
+          <div class="footer">
+            &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+};
+
+// Helper function to generate decline email content (matches createReservation template)
+const generateDeclineEmailContent = (reservation, timeSlot, scenarioDoc, chapterDoc, source) => {
+  const startTimeLocal = new Date(timeSlot.startTime).toLocaleString("fr-FR", {
+    timeZone: "Africa/Tunis",
+    hour12: false,
+  });
+  const endTimeLocal = new Date(timeSlot.endTime).toLocaleString("fr-FR", {
+    timeZone: "Africa/Tunis",
+    hour12: false,
+  });
+
+  let subject = "Réservation Refusée";
+  let content = "";
+
+  if (source === "approvedReservations") {
+    subject = "Réservation Refusée en raison de Problèmes Techniques";
+    content = `
+      <html>
+        <head>
+          <title>Réservation Refusée</title>
+          <meta charset="UTF-8"/>
+          <style>
+            body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
+            .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+            .header { background:#FF5733; color:#ffffff; padding:20px; text-align:center; }
+            .header h1 { margin:0; font-size:24px; }
+            .content { padding:20px; }
+            .content h2 { margin-top:0; }
+            .details p { margin:5px 0; }
+            .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="header">
+              <h1>Réservation Refusée</h1>
+            </div>
+            <div class="content">
+              <h2>Bonjour ${reservation.name},</h2>
+              <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
+              <div class="details">
+                <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+                <p><strong>Créneau horaire :</strong> Du ${startTimeLocal} au ${endTimeLocal}</p>
+                <p><strong>Statut :</strong> Refusée</p>
+                <p><strong>Scénario :</strong> ${scenarioDoc.name}</p>
+                <p><strong>Chapitre :</strong> ${chapterDoc.name}</p>
+                <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
+              </div>
+              <p>Nous nous excusons pour le désagrément causé.</p>
+            </div>
+            <div class="footer">
+              &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  } else {
+    content = `
+      <html>
+        <head>
+          <title>Réservation Refusée</title>
+          <meta charset="UTF-8"/>
+          <style>
+            body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
+            .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+            .header { background:#FF5733; color:#ffffff; padding:20px; text-align:center; }
+            .header h1 { margin:0; font-size:24px; }
+            .content { padding:20px; }
+            .content h2 { margin-top:0; }
+            .details p { margin:5px 0; }
+            .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="header">
+              <h1>Réservation Refusée</h1>
+            </div>
+            <div class="content">
+              <h2>Bonjour ${reservation.name},</h2>
+              <p>Votre réservation a été refusée.</p>
+              <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
+              <div class="details">
+                <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
+                <p><strong>Créneau horaire :</strong> Du ${startTimeLocal} au ${endTimeLocal}</p>
+                <p><strong>Statut :</strong> Refusée</p>
+                <p><strong>Scénario :</strong> ${scenarioDoc.name}</p>
+                <p><strong>Chapitre :</strong> ${chapterDoc.name}</p>
+                <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
+              </div>
+            </div>
+            <div class="footer">
+              &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  }
+
+  return content;
+};
+
 
 // Delete a reservation
 exports.deleteReservation = async (req, res) => {

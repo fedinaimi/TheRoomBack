@@ -6,6 +6,8 @@ const cloudinary = require('../config/cloudinaryConfig');
 
 
 
+
+
 const uploadToCloudinary = async (file, folder, resourceType = 'auto') => {
   try {
     const result = await cloudinary.uploader.upload(file, {
@@ -21,7 +23,37 @@ const uploadToCloudinary = async (file, folder, resourceType = 'auto') => {
 
 exports.createChapter = async (req, res) => {
   try {
-    const { name, percentageOfSuccess, minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
+    const {
+      name,
+      percentageOfSuccess,
+      minPlayerNumber,
+      maxPlayerNumber,
+      time,
+      difficulty,
+      description,
+      comment,
+      place,
+      scenarioId,
+      price, // New field
+      remisePercentagePerPerson, // New field
+    } = req.body;
+
+    // Validate required fields
+    if (
+      !name ||
+      minPlayerNumber === undefined ||
+      maxPlayerNumber === undefined ||
+      time === undefined ||
+      !difficulty ||
+      !place ||
+      !scenarioId ||
+      price === undefined ||
+      remisePercentagePerPerson === undefined
+    ) {
+      return res.status(400).json({ message: 'Tous les champs requis doivent être remplis.' });
+    }
+
+    // Additional validation can be added here if necessary
 
     const imageUrl = req.files?.image
       ? await uploadToCloudinary(req.files.image[0].path, 'chapters/images', 'image')
@@ -43,6 +75,8 @@ exports.createChapter = async (req, res) => {
       image: imageUrl,
       video: videoUrl,
       scenario: scenarioId,
+      price, // Assign new field
+      remisePercentagePerPerson, // Assign new field
     });
 
     await chapter.save();
@@ -90,10 +124,38 @@ exports.getChapterById = async (req, res) => {
   }
 };
 
-// Update a chapter
+
 exports.updateChapter = async (req, res) => {
   try {
-    const { name,percentageOfSuccess,minPlayerNumber, maxPlayerNumber, time, difficulty, description, comment, place, scenarioId } = req.body;
+    const {
+      name,
+      percentageOfSuccess,
+      minPlayerNumber,
+      maxPlayerNumber,
+      time,
+      difficulty,
+      description,
+      comment,
+      place,
+      scenarioId,
+      price, // New field
+      remisePercentagePerPerson, // New field
+    } = req.body;
+
+    // Validate required fields
+    if (
+      !name ||
+      minPlayerNumber === undefined ||
+      maxPlayerNumber === undefined ||
+      time === undefined ||
+      !difficulty ||
+      !place ||
+      !scenarioId ||
+      price === undefined ||
+      remisePercentagePerPerson === undefined
+    ) {
+      return res.status(400).json({ message: 'Tous les champs requis doivent être remplis.' });
+    }
 
     const chapter = await Chapter.findById(req.params.id);
     if (!chapter) return res.status(404).json({ message: 'Chapter not found' });
@@ -120,8 +182,10 @@ exports.updateChapter = async (req, res) => {
         image: imageUrl,
         video: videoUrl,
         scenario: scenarioId || chapter.scenario,
+        price, // Update new field
+        remisePercentagePerPerson, // Update new field
       },
-      { new: true }
+      { new: true, runValidators: true } // runValidators ensures schema validations are enforced
     );
 
     res.status(200).json({ message: 'Chapter updated successfully', chapter: updatedChapter });
