@@ -55,12 +55,12 @@ exports.createChapter = async (req, res) => {
 
     // Additional validation can be added here if necessary
 
-    const imageUrl = req.files?.image
-      ? await uploadToCloudinary(req.files.image[0].path, 'chapters/images', 'image')
-      : null;
-    const videoUrl = req.files?.video
-      ? await uploadToCloudinary(req.files.video[0].path, 'chapters/videos', 'video')
-      : null;
+    const imagePath = req.files?.image
+    ? `/uploads/${req.files.image[0].filename}`
+    : null;
+  const videoPath = req.files?.video
+    ? `/uploads/${req.files.video[0].filename}`
+    : null;
 
     const chapter = new Chapter({
       name,
@@ -72,8 +72,8 @@ exports.createChapter = async (req, res) => {
       description,
       comment,
       place,
-      image: imageUrl,
-      video: videoUrl,
+      image: imagePath,
+      video: videoPath,
       scenario: scenarioId,
       price, // Assign new field
       remisePercentagePerPerson, // Assign new field
@@ -160,12 +160,13 @@ exports.updateChapter = async (req, res) => {
     const chapter = await Chapter.findById(req.params.id);
     if (!chapter) return res.status(404).json({ message: 'Chapter not found' });
 
-    const imageUrl = req.files?.image
-      ? await uploadToCloudinary(req.files.image[0].path, 'chapters/images', 'image')
-      : chapter.image;
-    const videoUrl = req.files?.video
-      ? await uploadToCloudinary(req.files.video[0].path, 'chapters/videos', 'video')
-      : chapter.video;
+    const imagePath = req.files?.image
+    ? `/uploads/${req.files.image[0].filename}`
+    : chapter.image;
+  const videoPath = req.files?.video
+    ? `/uploads/${req.files.video[0].filename}`
+    : chapter.video;
+  
 
     const updatedChapter = await Chapter.findByIdAndUpdate(
       req.params.id,
@@ -179,8 +180,8 @@ exports.updateChapter = async (req, res) => {
         description,
         comment,
         place,
-        image: imageUrl,
-        video: videoUrl,
+        image: imagePath,
+        video: videoPath,
         scenario: scenarioId || chapter.scenario,
         price, // Update new field
         remisePercentagePerPerson, // Update new field

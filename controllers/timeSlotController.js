@@ -31,7 +31,12 @@ exports.createTimeSlots = async (req, res) => {
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const currentDate = d.toISOString().split('T')[0];
       const start = new Date(`${currentDate}T${weekdayTime.startTime}:00`);
-      const end = new Date(`${currentDate}T${weekdayTime.endTime}:00`);
+      let end = new Date(`${currentDate}T${weekdayTime.endTime}:00`);
+
+      // If endTime is earlier than or equal to startTime, assume it's the next day
+      if (end <= start) {
+        end.setDate(end.getDate() + 1);
+      }
 
       let currentSlotStart = start;
 
@@ -61,6 +66,7 @@ exports.createTimeSlots = async (req, res) => {
     res.status(500).json({ message: 'Internal server error.' });
   }
 };
+
 
 
 

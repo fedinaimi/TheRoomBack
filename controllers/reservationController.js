@@ -126,6 +126,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
       phone,
       language,
       people,
+
     });
     await reservation.save();
     console.log("Réservation créée:", reservation._id);
@@ -190,33 +191,36 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
     const customerEmailContent = `
       <html>
       <head>
-      <title>Confirmation est en cours de traitement</title>
-      <meta charset="UTF-8"/>
-      <style>
-        body {
-          font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333;
-        }
-        .email-container {
-          max-width:600px; margin:30px auto; background:#ffffff;
-          border-radius:8px; overflow:hidden; border:1px solid #ddd;
-        }
-        .header {
-          background:#4a90e2; color:#ffffff; padding:20px; text-align:center;
-        }
-        .header h1 { margin:0; font-size:24px; }
-        .content { padding:20px; }
-        .content h2 { margin-top:0; }
-        .details p { margin:5px 0; }
-        .footer {
-          background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666;
-        }
-        .highlight { color:red; font-weight:bold; }
-      </style>
+        <title>Veuillez patienter</title>
+        <meta charset="UTF-8"/>
+        <style>
+          body {
+            font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333;
+          }
+          .email-container {
+            max-width:600px; margin:30px auto; background:#ffffff;
+            border-radius:8px; overflow:hidden; border:1px solid #ddd;
+          }
+          .header {
+            background:#4a90e2; color:#ffffff; padding:20px; text-align:center;
+          }
+          .header h1 { margin:0; font-size:24px; }
+          .content { padding:20px; }
+          .content h2 { margin-top:0; }
+          .details p { margin:5px 0; }
+          .footer {
+            background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666;
+          }
+          .highlight { color:red; font-weight:bold; }
+          a.link-place {
+            color:rgb(223, 205, 45);
+          }
+        </style>
       </head>
       <body>
         <div class="email-container">
           <div class="header">
-            <h1>Confirmation est en cours de traitement</h1>
+            <h1>Réservation en cours</h1>
           </div>
           <div class="content">
             <h2>Bonjour ${name},</h2>
@@ -228,9 +232,16 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
               <p><strong>Nombre de personnes :</strong> ${people}</p>
               <p><strong>Scénario :</strong> ${scenarioName}</p>
               <p><strong>Chapitre :</strong> ${chapterName}</p>
+              <p><strong>Lieu :</strong> 
+                <a class="link-place" href="${chapterDoc.place}" target="_blank">
+                  Ouvrir la carte
+                </a>
+              </p>
               <p><strong>Créneau horaire :</strong> Du ${startTimeLocal} au ${endTimeLocal}</p>
             </div>
-            <p class="highlight">Veuillez patienter, un administrateur doit approuver votre réservation.</p>
+            <p class="highlight">
+              Veuillez patienter, un administrateur doit approuver votre réservation.
+            </p>
             <p>Merci de votre confiance,</p>
             <p>L'équipe de Réservation</p>
           </div>
@@ -241,9 +252,8 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
       </body>
       </html>
     `;
-
     await sendEmail(email, customerEmailSubject, customerEmailContent);
-    console.log("Email de confirmation envoyé au client:", email);
+    console.log("Email (pending) envoyé au client:", email);
 
     // Notification aux administrateurs
     const admins = await User.find({ usertype: { $in: ["admin", "subadmin"] } });
@@ -352,42 +362,8 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
     });
   }
 };
-// Get all reservations (admin)
-exports.getAllReservations = async (req, res) => {
-  try {
-    // Fetch data from all collections
-    const reservations = await Reservation.find()
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
 
-    const approvedReservations = await ApprovedReservation.find()
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
 
-    const declinedReservations = await DeclinedReservation.find()
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    const deletedReservations = await DeletedReservation.find()
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    // Send data grouped by collection
-    res.status(200).json({
-      reservations,
-      approvedReservations,
-      declinedReservations,
-      deletedReservations,
-    });
-  } catch (error) {
-    console.error("Error fetching reservations:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
 
 // Update reservation status (approve or decline)
 exports.updateReservationStatus = async (req, res) => {
@@ -506,52 +482,58 @@ exports.updateReservationStatus = async (req, res) => {
 
       // Send approval email to customer
       const approvalEmailContent = `
-        <html>
-          <head>
-            <title>Réservation Approuvée</title>
-            <meta charset="UTF-8"/>
-            <style>
-              body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
-              .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
-              .header { background:#4CAF50; color:#ffffff; padding:20px; text-align:center; }
-              .header h1 { margin:0; font-size:24px; }
-              .content { padding:20px; }
-              .content h2 { margin-top:0; }
-              .details p { margin:5px 0; }
-              .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
-            </style>
-          </head>
-          <body>
-            <div class="email-container">
-              <div class="header">
-                <h1>Votre réservation a été approuvée</h1>
-              </div>
-              <div class="content">
-                <h2>Bonjour ${reservation.name},</h2>
-                <p>Votre réservation a été approuvée avec succès. Voici les détails :</p>
-                <div class="details">
-                  <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
-                  <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
-                    timeZone: "Africa/Tunis",
-                    hour12: false,
-                  })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-                    timeZone: "Africa/Tunis",
-                    hour12: false,
-                  })}</p>
-                  <p><strong>Statut :</strong> Approuvée</p>
-                </div>
-                <p>Merci d'avoir choisi notre service !</p>
-                <p>Après avoir joué, partagez votre expérience et laissez votre avis sur notre page Google Maps : <a href="https://www.google.com/maps/place/The+Room+Escape+Game/@36.8536969,10.1663538,17z/data=!3m1!4b1!4m6!3m5!1s0x12fd33563fb1afad:0xd1e0353f2a6e4df9!8m2!3d36.8536969!4d10.1689287!16s%2Fg%2F11f57szbtq?entry=tts&g_ep=EgoyMDI0MTIxMS4wIPu8ASoASAFQAw%3D%3D" target="_blank">The Room Escape Game</a>.</p>
-              </div>
-              <div class="footer">
-                &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
-              </div>
+      <html>
+        <head>
+          <title>Réservation Approuvée</title>
+          <meta charset="UTF-8"/>
+          <style>
+            body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0; color:#333; }
+            .email-container { max-width:600px; margin:30px auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #ddd; }
+            .header { background:#4CAF50; color:#ffffff; padding:20px; text-align:center; }
+            .header h1 { margin:0; font-size:24px; }
+            .content { padding:20px; }
+            .content h2 { margin-top:0; }
+            .details p { margin:5px 0; }
+            .footer { background:#f0f0f0; padding:10px; text-align:center; font-size:14px; color:#666; }
+            a.link-place { color: #4CAF50; }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="header">
+              <h1>Votre réservation a été approuvée</h1>
             </div>
-          </body>
-        </html>
-      `;
-      await sendEmail(reservation.email, "Réservation Approuvée", approvalEmailContent);
-      console.log(`Approval email sent to customer: ${reservation.email}`);
+            <div class="content">
+              <h2>Bonjour ${reservation.name},</h2>
+              <p>Votre réservation a été approuvée avec succès. Voici les détails :</p>
+              <div class="details">
+                <p><strong>ID :</strong> ${reservation._id}</p>
+                <p><strong>Scénario :</strong> ${scenarioDoc.name}</p>
+                <p><strong>Chapitre :</strong> ${chapterDoc.name}</p>
+                <p><strong>Lieu :</strong>
+                  <a class="link-place" href="${chapterDoc.place}" target="_blank">
+                    Ouvrir la carte
+                  </a>
+                </p>
+                <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
+                <p><strong>Créneau horaire :</strong>
+                  ${new Date(timeSlot.startTime).toLocaleString("fr-FR",{ timeZone: "Africa/Tunis", hour12: false })}
+                   -
+                  ${new Date(timeSlot.endTime).toLocaleString("fr-FR",{ timeZone: "Africa/Tunis", hour12: false })}
+                </p>
+                <p><strong>Statut :</strong> Approuvée</p>
+              </div>
+              <p>Merci d'avoir choisi notre service !</p>
+            </div>
+            <div class="footer">
+              &copy; ${new Date().getFullYear()} The ROOM - Tous droits réservés.
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    await sendEmail(reservation.email, "Réservation Approuvée", approvalEmailContent);
+    console.log("Approval email sent:", reservation.email);
 
       // Remove the reservation from the original source
       if (source === "declinedReservations") {
@@ -863,25 +845,30 @@ exports.deleteReservation = async (req, res) => {
 
 // Get all reservations (admin)
 
+// Get all reservations (admin)
 exports.getAllReservations = async (req, res) => {
   try {
-    // Fetch data from all collections
+    // Fetch data from all collections, sorting by "createdAt" descending
     const reservations = await Reservation.find()
+      .sort({ createdAt: -1 })
       .populate("scenario")
       .populate("chapter")
       .populate("timeSlot");
 
     const approvedReservations = await ApprovedReservation.find()
+      .sort({ createdAt: -1 })
       .populate("scenario")
       .populate("chapter")
       .populate("timeSlot");
 
     const declinedReservations = await DeclinedReservation.find()
+      .sort({ createdAt: -1 })
       .populate("scenario")
       .populate("chapter")
       .populate("timeSlot");
 
     const deletedReservations = await DeletedReservation.find()
+      .sort({ createdAt: -1 })
       .populate("scenario")
       .populate("chapter")
       .populate("timeSlot");
@@ -898,6 +885,7 @@ exports.getAllReservations = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 
 // src/controllers/reservationController.js
 
@@ -1151,6 +1139,10 @@ const generateApprovalEmailContent = (reservation, timeSlot, scenarioDoc, chapte
               <p><strong>Scénario :</strong> ${scenarioDoc.name}</p>
               <p><strong>Chapitre :</strong> ${chapterDoc.name}</p>
               <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
+              <p><strong>Lieu :</strong>
+                  <a class="link-place" href="${chapterDoc.place}" target="_blank">
+                    Ouvrir la carte
+                  </a></p>
             </div>
             <p>Merci d'avoir choisi notre service !</p>
           </div>

@@ -20,6 +20,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 const server = http.createServer(app);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Initialize Socket.IO
 const io = new Server(server, {
