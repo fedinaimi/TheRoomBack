@@ -202,7 +202,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
             border-radius:8px; overflow:hidden; border:1px solid #ddd;
           }
           .header {
-            background:#4a90e2; color:#ffffff; padding:20px; text-align:center;
+            background:rgb(223, 205, 45); color:#ffffff; padding:20px; text-align:center;
           }
           .header h1 { margin:0; font-size:24px; }
           .content { padding:20px; }
@@ -220,7 +220,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
       <body>
         <div class="email-container">
           <div class="header">
-            <h1>Réservation en cours</h1>
+            <h1>Veuillez patienter, un administrateur doit approuver votre réservation</h1>
           </div>
           <div class="content">
             <h2>Bonjour ${name},</h2>
@@ -232,11 +232,7 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
               <p><strong>Nombre de personnes :</strong> ${people}</p>
               <p><strong>Scénario :</strong> ${scenarioName}</p>
               <p><strong>Chapitre :</strong> ${chapterName}</p>
-              <p><strong>Lieu :</strong> 
-                <a class="link-place" href="${chapterDoc.place}" target="_blank">
-                  Ouvrir la carte
-                </a>
-              </p>
+             
               <p><strong>Créneau horaire :</strong> Du ${startTimeLocal} au ${endTimeLocal}</p>
             </div>
             <p class="highlight">
