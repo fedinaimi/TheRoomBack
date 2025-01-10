@@ -17,6 +17,7 @@ const timeSlotRoutes = require("./routes/timeSlotRoutes");
 const scenarioRoutes = require("./routes/scenarioRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
 const notificationRoutes = require('./routes/notificationRoutes');
+const priceRoutes = require('./routes/PriceRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,6 +77,7 @@ app.use("/api/timeslots", timeSlotRoutes);
 app.use("/api/scenarios", scenarioRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/prices', priceRoutes);
 
 // MongoDB connection
 mongoose.connect(process.env.DB_URL, {
