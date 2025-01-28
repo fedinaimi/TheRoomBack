@@ -19,12 +19,12 @@ const ChapterSchema = new mongoose.Schema({
   // New Fields
   price: {
     type: Number,
-    required: true,
+    required: false,
     min: [0, 'Le prix ne peut pas être négatif.'],
   },
   remisePercentagePerPerson: {
     type: Number,
-    required: true,
+    required: false,
     min: [0, 'Le pourcentage de remise ne peut pas être inférieur à 0%.'],
     max: [100, 'Le pourcentage de remise ne peut pas dépasser 100%.'],
   },

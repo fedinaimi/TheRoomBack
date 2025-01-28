@@ -46,9 +46,7 @@ exports.createChapter = async (req, res) => {
       time === undefined ||
       !difficulty ||
       !place ||
-      !scenarioId ||
-      price === undefined ||
-      remisePercentagePerPerson === undefined
+      !scenarioId 
     ) {
       return res.status(400).json({ message: 'Tous les champs requis doivent être remplis.' });
     }
@@ -150,9 +148,7 @@ exports.updateChapter = async (req, res) => {
       time === undefined ||
       !difficulty ||
       !place ||
-      !scenarioId ||
-      price === undefined ||
-      remisePercentagePerPerson === undefined
+      !scenarioId 
     ) {
       return res.status(400).json({ message: 'Tous les champs requis doivent être remplis.' });
     }
