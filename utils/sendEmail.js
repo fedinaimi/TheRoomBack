@@ -1,25 +1,30 @@
 const nodemailer = require("nodemailer");
+require("dotenv").config(); // Ensure environment variables are loaded
 
 module.exports = async (email, subject, htmlContent) => {
     try {
         const transporter = nodemailer.createTransport({
-            type: "SMTP",
-            host: 'smtp.gmail.com',
-            port: 465,
-            secure: true,
+            host: "ssl0.ovh.net", // OVH SMTP server (correct host)
+            port: 587, // SSL port
+            secure: false, // Use SSL (true for port 465, false for 587)
             auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASS,
-            }
+                user: process.env.EMAIL_USER, // OVH email
+                pass: process.env.EMAIL_PASS, // OVH password or app password
+            },
+            tls: {
+                rejectUnauthorized: false, // Bypass SSL certificate validation issues
+            },
         });
-        await transporter.sendMail({
-            from: 'Theroom <noreply@Theroom>',
+
+        const info = await transporter.sendMail({
+            from: `"Theroom" <${process.env.EMAIL_USER}>`, // Must match authenticated email
             to: email,
             subject: subject,
-            html: htmlContent, 
+            html: htmlContent,
         });
+
+        console.log("✅ Email sent successfully:", info.messageId);
     } catch (error) {
-        console.log("Email not sent");
-        console.log(error);
+        console.error("❌ Email not sent:", error.message);
     }
 };
