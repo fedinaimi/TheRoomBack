@@ -7,6 +7,7 @@ const multerConfig = require('../middlewares/multer-config'); // Multer configur
 // Create Chapter
 router.post(
   '/',
+  auth,
   multerConfig.fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }]),
   chapterController.createChapter
 );
