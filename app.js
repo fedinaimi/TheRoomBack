@@ -10,6 +10,10 @@ const helmet = require("helmet");
 const mongoose = require("mongoose");
 require("dotenv").config({ path: "./config/config.env" });
 
+// Set default timezone for the application to Tunisia (Africa/Tunis)
+process.env.TZ = 'Africa/Tunis';
+console.log(`Server timezone set to: ${process.env.TZ} (Current time: ${new Date().toLocaleString()})`);
+
 // Import routes
 const userRoutes = require("./routes/userRoutes");
 const chapterRoutes = require("./routes/chapterRoutes");
@@ -85,5 +89,5 @@ mongoose.connect(process.env.DB_URL, {
   useUnifiedTopology: true,
 }).then(() => {
   console.log("MongoDB connected");
-  server.listen(process.env.PORT || 5000, () => console.log(`Server running on port ${process.env.PORT || 5000}`));
+  server.listen(process.env.PORT || 5001, () => console.log(`Server running on port ${process.env.PORT || 5001}`));
 }).catch((err) => console.error(err));

@@ -4,9 +4,6 @@ const mongoose = require('mongoose');
 
 // Create time slots for a scenario on a specific date (admin)
 
-
-
-
 exports.createTimeSlots = async (req, res) => {
   try {
     const { chapterId, dateRange, weekdayTime } = req.body;
@@ -29,7 +26,10 @@ exports.createTimeSlots = async (req, res) => {
     const timeSlots = [];
 
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const currentDate = d.toISOString().split('T')[0];
+      // Format date in YYYY-MM-DD format using the Tunisia timezone
+      const currentDate = d.toLocaleDateString('sv', { timeZone: 'Africa/Tunis' }); // sv locale gives YYYY-MM-DD format
+      
+      // Create the start and end time for the current date
       const start = new Date(`${currentDate}T${weekdayTime.startTime}:00`);
       let end = new Date(`${currentDate}T${weekdayTime.endTime}:00`);
 
@@ -59,6 +59,7 @@ exports.createTimeSlots = async (req, res) => {
     }
 
     const createdTimeSlots = await TimeSlot.insertMany(timeSlots);
+    console.log(`Created ${createdTimeSlots.length} time slots in Tunisia timezone (Africa/Tunis)`);
 
     res.status(201).json({ message: 'Time slots created successfully.', timeSlots: createdTimeSlots });
   } catch (error) {
@@ -66,17 +67,6 @@ exports.createTimeSlots = async (req, res) => {
     res.status(500).json({ message: 'Internal server error.' });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
 
 // Get all time slots for a specific scenario
 exports.getAllTimeSlotsByScenario = async (req, res) => {
@@ -90,15 +80,25 @@ exports.getAllTimeSlotsByScenario = async (req, res) => {
     // Fetch all time slots for the given scenario
     const timeSlots = await TimeSlot.find({ scenario: scenarioId }).lean();
 
-    // Helper function to format the time slots
+    // Helper function to format the time slots using Tunisia timezone
     const formatTimeSlot = (start, end) => {
-      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Africa/Tunis' };
       const startDate = new Date(start);
       const endDate = new Date(end);
 
-      const dayDate = startDate.toLocaleDateString('en-US', options);
-      const startTime = startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-      const endTime = endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const dayDate = startDate.toLocaleDateString('fr-TN', options);
+      const startTime = startDate.toLocaleTimeString('fr-TN', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        hour12: false, 
+        timeZone: 'Africa/Tunis' 
+      });
+      const endTime = endDate.toLocaleTimeString('fr-TN', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        hour12: false, 
+        timeZone: 'Africa/Tunis' 
+      });
 
       return `${dayDate}, ${startTime} - ${endTime}`;
     };
@@ -120,8 +120,6 @@ exports.getAllTimeSlotsByScenario = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
-
-
 
 // Get time slots by scenario and date (for a specific date)
 exports.getTimeSlotsByDate = async (req, res) => {
@@ -151,11 +149,6 @@ exports.getTimeSlotsByDate = async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
-
-
-
-
-
 
 /*
 
@@ -271,9 +264,6 @@ exports.toggleAvailability = async (req, res) => {
     const { id } = req.params;
     const { isAvailable } = req.body;
 
-    
-
-
     // Validate the inputs
     if (!id || typeof isAvailable !== 'boolean') {
       console.error('Validation failed:', { id, isAvailable });
@@ -299,10 +289,6 @@ exports.toggleAvailability = async (req, res) => {
   }
 };
 
-
-
-
-
 // timeSlotController.js
 exports.getTimeSlotsByChapterAndDate = async (req, res) => {
   try {
@@ -311,6 +297,8 @@ exports.getTimeSlotsByChapterAndDate = async (req, res) => {
     if (!chapterId || !date) {
       return res.status(400).json({ message: 'Chapter ID and date are required.' });
     }
+
+    console.log(`Fetching time slots for Chapter ID: ${chapterId}, Date: ${date} in Tunisia timezone`);
 
     // Fetch all time slots for the chapter and date
     const timeSlots = await TimeSlot.find({ chapter: chapterId, date }).lean();
@@ -335,8 +323,36 @@ exports.getTimeSlotsByChapterAndDate = async (req, res) => {
       }
     });
 
-    // Add status to time slots
+    // Add status to time slots and format times using Tunisia timezone
     const updatedTimeSlots = timeSlots.map((slot) => {
+      // Format start and end times with Africa/Tunis timezone
+      const startTime = new Date(slot.startTime);
+      const endTime = new Date(slot.endTime);
+      
+      // Add formatted times using Tunisia timezone
+      slot.formattedStartTime = startTime.toLocaleTimeString('fr-TN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Africa/Tunis'
+      });
+      
+      slot.formattedEndTime = endTime.toLocaleTimeString('fr-TN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Africa/Tunis'
+      });
+      
+      slot.formattedDate = startTime.toLocaleDateString('fr-TN', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        weekday: 'long',
+        timeZone: 'Africa/Tunis'
+      });
+      
+      // Determine slot status
       const reservationStatus = reservationStatusMap[slot._id.toString()] || null;
       if (!slot.isAvailable) {
         slot.status = 'unavailable';
@@ -350,14 +366,13 @@ exports.getTimeSlotsByChapterAndDate = async (req, res) => {
       return slot;
     });
 
+    console.log(`Found and formatted ${updatedTimeSlots.length} time slots in Tunisia timezone`);
     res.status(200).json(updatedTimeSlots);
   } catch (error) {
     console.error('Error in getTimeSlotsByChapterAndDate:', error);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
-
-
 
 // Controller function to clear all time slots for a chapter
 exports.clearAllTimeSlotsForChapter = async (req, res) => {

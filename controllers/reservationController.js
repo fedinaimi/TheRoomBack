@@ -1,4 +1,25 @@
+// Helper function for Tunisia date/time formatting
+const formatTunisiaDateTime = (date) => {
+  return new Date(date).toLocaleString('fr-FR', {
+    timeZone: 'Africa/Tunis',
+    hour12: false,
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
+// Helper function for Tunisia date formatting only
+const formatTunisiaDate = (date) => {
+  return new Date(date).toLocaleDateString('fr-FR', {
+    timeZone: 'Africa/Tunis',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+};
 
 const Reservation = require("../models/Reservation");
 const TimeSlot = require("../models/TimeSlot");
@@ -167,24 +188,8 @@ exports.createReservation = async (req, res) => { // Correction ici: remplacer '
     }
 
     // Formater les heures pour les emails
-    const startTimeLocal = new Date(timeSlotData.startTime).toLocaleString("fr-FR", {
-      timeZone: "Africa/Tunis",
-      hour12: false,
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const endTimeLocal = new Date(timeSlotData.endTime).toLocaleString("fr-FR", {
-      timeZone: "Africa/Tunis",
-      hour12: false,
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const startTimeLocal = formatTunisiaDateTime(timeSlotData.startTime);
+    const endTimeLocal = formatTunisiaDateTime(timeSlotData.endTime);
 
     // Email de confirmation au client
     const customerEmailSubject = "Restez informé : Votre réservation est en attente d'approbation";
@@ -513,9 +518,9 @@ exports.updateReservationStatus = async (req, res) => {
                 </p>
                 <p><strong>Nombre de personnes :</strong> ${reservation.people}</p>
                 <p><strong>Créneau horaire :</strong>
-                  ${new Date(timeSlot.startTime).toLocaleString("fr-FR",{ timeZone: "Africa/Tunis", hour12: false })}
+                  ${formatTunisiaDateTime(timeSlot.startTime)}
                    -
-                  ${new Date(timeSlot.endTime).toLocaleString("fr-FR",{ timeZone: "Africa/Tunis", hour12: false })}
+                  ${formatTunisiaDateTime(timeSlot.endTime)}
                 </p>
                 <p><strong>Statut :</strong> Approuvée</p>
               </div>
@@ -625,13 +630,7 @@ exports.updateReservationStatus = async (req, res) => {
                   <p>Nous sommes désolés de vous informer que votre réservation a été refusée en raison de problèmes techniques imprévus.</p>
                   <div class="details">
                     <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
-                    <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
-                      timeZone: "Africa/Tunis",
-                      hour12: false,
-                    })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-                      timeZone: "Africa/Tunis",
-                      hour12: false,
-                    })}</p>
+                    <p><strong>Créneau horaire :</strong> ${formatTunisiaDateTime(timeSlot.startTime)} - ${formatTunisiaDateTime(timeSlot.endTime)}</p>
                     <p><strong>Statut :</strong> Refusée</p>
                   </div>
                   <p>Nous nous excusons pour le désagrément causé.</p>
@@ -670,13 +669,7 @@ exports.updateReservationStatus = async (req, res) => {
                   <p>Veuillez choisir un autre créneau horaire et réessayer.</p>
                   <div class="details">
                     <p><strong>ID de la réservation :</strong> ${reservation._id}</p>
-                    <p><strong>Créneau horaire :</strong> ${new Date(timeSlot.startTime).toLocaleString("fr-FR", {
-                      timeZone: "Africa/Tunis",
-                      hour12: false,
-                    })} - ${new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-                      timeZone: "Africa/Tunis",
-                      hour12: false,
-                    })}</p>
+                    <p><strong>Créneau horaire :</strong> ${formatTunisiaDateTime(timeSlot.startTime)} - ${formatTunisiaDateTime(timeSlot.endTime)}</p>
                     <p><strong>Statut :</strong> Refusée</p>
                   </div>
                 </div>
@@ -687,393 +680,6 @@ exports.updateReservationStatus = async (req, res) => {
             </body>
           </html>
         `;
-      await sendEmail(reservation.email, "Réservation Refusée", emailContent);
-      console.log(`Decline email sent to customer: ${reservation.email}`);
-
-      // Remove the reservation from the original source
-      if (source === "approvedReservations") {
-        await ApprovedReservation.findByIdAndDelete(reservationId);
-      } else {
-        await Reservation.findByIdAndDelete(reservationId);
-      }
-    }
-
-    // Send response
-    res.status(200).json({ message: "Statut de la réservation mis à jour avec succès." });
-  } catch (error) {
-    console.error("Erreur lors de la mise à jour du statut de la réservation :", error);
-    res.status(500).json({ message: "Erreur interne du serveur." });
-  }
-};
-
-// Delete a reservation
-exports.deleteReservation = async (req, res) => {
-  const { source, reservationId } = req.params;
-
-  if (!source || !reservationId) {
-    return res
-      .status(400)
-      .json({ message: "Source or reservation ID is missing." });
-  }
-
-  try {
-    let reservation;
-
-    // Retrieve the reservation based on the source
-    if (source === "reservations") {
-      reservation = await Reservation.findById(reservationId);
-    } else if (source === "approvedReservations") {
-      reservation = await ApprovedReservation.findById(reservationId);
-    } else if (source === "declinedReservations") {
-      reservation = await DeclinedReservation.findById(reservationId);
-    } else {
-      return res.status(400).json({ message: "Invalid source specified." });
-    }
-
-    if (!reservation) {
-      return res.status(404).json({ message: "Reservation not found." });
-    }
-
-    // Check if the associated time slot is in the past
-    const timeSlot = await TimeSlot.findById(reservation.timeSlot);
-    if (!timeSlot) {
-      return res
-        .status(400)
-        .json({
-          message: "Créneau horaire non trouvé pour cette réservation.",
-        });
-    }
-
-    // Move reservation to DeletedReservation
-    await DeletedReservation.create({
-      scenario: reservation.scenario,
-      chapter: reservation.chapter,
-      timeSlot: reservation.timeSlot,
-      name: reservation.name,
-      email: reservation.email,
-      phone: reservation.phone,
-      language: reservation.language,
-      createdAt: reservation.createdAt,
-      status: "deleted",
-      people: reservation.people,
-    });
-
-    // If time slot is in the past, additional logic can be implemented here if needed
-
-    // Update time slot status based on reservation source
-    if (source === "approvedReservations") {
-      timeSlot.status = "available";
-      timeSlot.isAvailable = true;
-      timeSlot.blockedBy = null;
-      await timeSlot.save();
-    } else if (source === "reservations" || source === "declinedReservations") {
-      timeSlot.status = "available";
-      timeSlot.isAvailable = true;
-      timeSlot.blockedBy = null;
-      await timeSlot.save();
-    }
-
-    // Unblock parallel time slots if necessary
-    const scenarioDoc = await Scenario.findById(reservation.scenario);
-    const chapterDoc = await Chapter.findById(reservation.chapter);
-    if (scenarioDoc && chapterDoc) {
-      const parallelChapters = await Chapter.find({
-        scenario: scenarioDoc._id,
-        _id: { $ne: chapterDoc._id },
-      });
-
-      if (parallelChapters.length > 0) {
-        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
-
-        const parallelTimeSlots = await TimeSlot.find({
-          chapter: { $in: parallelChapterIds },
-          $and: [
-            { startTime: { $lt: timeSlot.endTime } },
-            { endTime: { $gt: timeSlot.startTime } },
-          ],
-        });
-
-        const bulkOps = parallelTimeSlots
-          .filter(
-            (slot) =>
-              slot.status === "blocked" &&
-              slot.blockedBy &&
-              slot.blockedBy.toString() === reservationId
-          )
-          .map((slot) => ({
-            updateOne: {
-              filter: { _id: slot._id },
-              update: {
-                status: "available",
-                isAvailable: true,
-                blockedBy: null,
-              },
-            },
-          }));
-
-        if (bulkOps.length > 0) {
-          await TimeSlot.bulkWrite(bulkOps);
-          console.log(
-            "Unblocked parallel time slots:",
-            bulkOps.map((op) => op.updateOne.filter._id)
-          );
-        }
-      }
-    }
-
-    // Delete the reservation from the original source
-    if (source === "reservations") {
-      await Reservation.findByIdAndDelete(reservationId);
-    } else if (source === "approvedReservations") {
-      await ApprovedReservation.findByIdAndDelete(reservationId);
-    } else if (source === "declinedReservations") {
-      await DeclinedReservation.findByIdAndDelete(reservationId);
-    }
-
-    return res.status(200).json({
-      message: "Reservation deleted and moved to DeletedReservation.",
-    });
-  } catch (error) {
-    console.error("Error deleting reservation:", error);
-    res.status(500).json({ message: "Internal server error." });
-  }
-};
-
-// Get all reservations (admin)
-
-// Get all reservations (admin)
-exports.getAllReservations = async (req, res) => {
-  try {
-    // Fetch data from all collections, sorting by "createdAt" descending
-    const reservations = await Reservation.find()
-      .sort({ createdAt: -1 })
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    const approvedReservations = await ApprovedReservation.find()
-      .sort({ createdAt: -1 })
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    const declinedReservations = await DeclinedReservation.find()
-      .sort({ createdAt: -1 })
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    const deletedReservations = await DeletedReservation.find()
-      .sort({ createdAt: -1 })
-      .populate("scenario")
-      .populate("chapter")
-      .populate("timeSlot");
-
-    // Send data grouped by collection
-    res.status(200).json({
-      reservations,
-      approvedReservations,
-      declinedReservations,
-      deletedReservations,
-    });
-  } catch (error) {
-    console.error("Error fetching reservations:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
-
-
-// src/controllers/reservationController.js
-
-
-
-// Update reservation status (approve or decline)
-exports.updateReservationStatus = async (req, res) => {
-  try {
-    const { status } = req.body; // 'approved' or 'declined'
-    const { source, reservationId } = req.params; // Source and ID of the reservation
-
-    // Validate status
-    if (!["approved", "declined"].includes(status)) {
-      console.warn(`Invalid status: ${status}`);
-      return res.status(400).json({
-        message: "Statut invalide. Utilisez 'approved' ou 'declined'.",
-      });
-    }
-
-    // Determine the correct Reservation model based on source
-    let ReservationModel;
-    if (source === "reservations") {
-      ReservationModel = Reservation;
-    } else if (source === "approvedReservations") {
-      ReservationModel = ApprovedReservation;
-    } else if (source === "declinedReservations") {
-      ReservationModel = DeclinedReservation;
-    } else {
-      console.warn(`Invalid source specified: ${source}`);
-      return res.status(400).json({ message: "Source invalide spécifié." });
-    }
-
-    // Fetch the reservation based on source
-    const reservation = await ReservationModel.findById(reservationId)
-      .populate("timeSlot chapter scenario")
-      .exec();
-
-    // Validate if reservation exists
-    if (!reservation) {
-      console.warn(`Reservation not found: ID ${reservationId}`);
-      return res.status(404).json({ message: "Réservation non trouvée." });
-    }
-
-    const timeSlot = reservation.timeSlot;
-
-    // Validate if time slot exists
-    if (!timeSlot) {
-      console.warn(`Time slot not found for reservation: ID ${reservationId}`);
-      return res.status(400).json({
-        message: "Créneau horaire non trouvé pour cette réservation.",
-      });
-    }
-
-    // Fetch related Scenario and Chapter documents
-    const scenarioDoc = await Scenario.findById(reservation.scenario).exec();
-    const chapterDoc = await Chapter.findById(reservation.chapter).exec();
-
-    if (!scenarioDoc || !chapterDoc) {
-      console.warn(`Scenario or Chapter not found for reservation: ID ${reservationId}`);
-      return res.status(404).json({ message: "Scénario ou Chapitre introuvable." });
-    }
-
-    if (status === "approved") {
-      // Move to ApprovedReservation collection
-      const approvedReservation = new ApprovedReservation({
-        ...reservation.toObject(),
-        status: "approved",
-      });
-      await approvedReservation.save();
-      console.log(`Reservation approved and moved: ID ${approvedReservation._id}`);
-
-      // Update time slot to "booked"
-      timeSlot.status = "booked";
-      timeSlot.isAvailable = false;
-      await timeSlot.save();
-      console.log(`Time slot updated to 'booked': ID ${timeSlot._id}`);
-
-      // **Fixed Logic**: Block only overlapping parallel time slots in other chapters of the same scenario
-      const scenarioId = reservation.scenario._id;
-      const chapterId = reservation.chapter._id;
-
-      // Find all chapters in the same scenario excluding the current one
-      const parallelChapters = await Chapter.find({
-        scenario: scenarioId,
-        _id: { $ne: chapterId },
-      });
-
-      if (parallelChapters.length > 0) {
-        // Extract chapter IDs
-        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
-
-        // Find all time slots in parallel chapters that overlap with the selected time slot
-        const parallelTimeSlots = await TimeSlot.find({
-          chapter: { $in: parallelChapterIds },
-          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
-          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
-          status: "available", // Only available slots can be blocked
-        });
-
-        // Update the status of these parallel time slots to 'blocked'
-        const bulkOps = parallelTimeSlots.map((slot) => ({
-          updateOne: {
-            filter: { _id: slot._id },
-            update: {
-              status: "blocked",
-              blockedBy: approvedReservation._id,
-              isAvailable: false,
-            },
-          },
-        }));
-
-        if (bulkOps.length > 0) {
-          await TimeSlot.bulkWrite(bulkOps);
-          console.log(
-            "Blocked parallel time slots:",
-            bulkOps.map((op) => op.updateOne.filter._id)
-          );
-        }
-      }
-
-      // Send approval email to customer
-      const approvalEmailContent = generateApprovalEmailContent(reservation, timeSlot, scenarioDoc, chapterDoc);
-      await sendEmail(reservation.email, "Réservation Approuvée", approvalEmailContent);
-      console.log(`Approval email sent to customer: ${reservation.email}`);
-
-      // Remove the reservation from the original source
-      if (source === "declinedReservations") {
-        await DeclinedReservation.findByIdAndDelete(reservationId);
-      } else {
-        await Reservation.findByIdAndDelete(reservationId);
-      }
-    } else if (status === "declined") {
-      // Move to DeclinedReservation collection
-      const declinedReservation = new DeclinedReservation({
-        ...reservation.toObject(),
-        status: "declined",
-      });
-      await declinedReservation.save();
-      console.log(`Reservation declined and moved: ID ${declinedReservation._id}`);
-
-      // Update time slot to "available"
-      timeSlot.status = "available";
-      timeSlot.isAvailable = true;
-      await timeSlot.save();
-      console.log(`Time slot updated to 'available': ID ${timeSlot._id}`);
-
-      // **Fixed Logic**: Unblock only overlapping parallel time slots in other chapters of the same scenario
-      const scenarioId = reservation.scenario._id;
-      const chapterId = reservation.chapter._id;
-
-      // Find all chapters in the same scenario excluding the current one
-      const parallelChapters = await Chapter.find({
-        scenario: scenarioId,
-        _id: { $ne: chapterId },
-      });
-
-      if (parallelChapters.length > 0) {
-        // Extract chapter IDs
-        const parallelChapterIds = parallelChapters.map((chap) => chap._id);
-
-        // Find all time slots in parallel chapters that overlap with the selected time slot
-        const parallelTimeSlots = await TimeSlot.find({
-          chapter: { $in: parallelChapterIds },
-          startTime: { $lt: timeSlot.endTime }, // Overlaps with current time slot's end
-          endTime: { $gt: timeSlot.startTime }, // Overlaps with current time slot's start
-          status: "blocked",
-          blockedBy: reservationId, // Ensure only slots blocked by this reservation are unblocked
-        });
-
-        // Update the status of these parallel time slots to 'available'
-        const bulkOps = parallelTimeSlots.map((slot) => ({
-          updateOne: {
-            filter: { _id: slot._id },
-            update: {
-              status: "available",
-              isAvailable: true,
-              blockedBy: null,
-            },
-          },
-        }));
-
-        if (bulkOps.length > 0) {
-          await TimeSlot.bulkWrite(bulkOps);
-          console.log(
-            "Unblocked parallel time slots:",
-            bulkOps.map((op) => op.updateOne.filter._id)
-          );
-        }
-      }
-
-      // Send decline email to customer
-      const declineEmailContent = generateDeclineEmailContent(reservation, timeSlot, scenarioDoc, chapterDoc, source);
       await sendEmail(reservation.email, "Réservation Refusée", declineEmailContent);
       console.log(`Decline email sent to customer: ${reservation.email}`);
 
@@ -1095,14 +701,8 @@ exports.updateReservationStatus = async (req, res) => {
 
 // Helper function to generate approval email content (matches createReservation template)
 const generateApprovalEmailContent = (reservation, timeSlot, scenarioDoc, chapterDoc) => {
-  const startTimeLocal = new Date(timeSlot.startTime).toLocaleString("fr-FR", {
-    timeZone: "Africa/Tunis",
-    hour12: false,
-  });
-  const endTimeLocal = new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-    timeZone: "Africa/Tunis",
-    hour12: false,
-  });
+  const startTimeLocal = formatTunisiaDateTime(timeSlot.startTime);
+  const endTimeLocal = formatTunisiaDateTime(timeSlot.endTime);
 
   return `
     <html>
@@ -1153,14 +753,8 @@ const generateApprovalEmailContent = (reservation, timeSlot, scenarioDoc, chapte
 
 // Helper function to generate decline email content (matches createReservation template)
 const generateDeclineEmailContent = (reservation, timeSlot, scenarioDoc, chapterDoc, source) => {
-  const startTimeLocal = new Date(timeSlot.startTime).toLocaleString("fr-FR", {
-    timeZone: "Africa/Tunis",
-    hour12: false,
-  });
-  const endTimeLocal = new Date(timeSlot.endTime).toLocaleString("fr-FR", {
-    timeZone: "Africa/Tunis",
-    hour12: false,
-  });
+  const startTimeLocal = formatTunisiaDateTime(timeSlot.startTime);
+  const endTimeLocal = formatTunisiaDateTime(timeSlot.endTime);
 
   let subject = "Réservation Refusée";
   let content = "";
@@ -1403,6 +997,47 @@ exports.getReservationById = async (req, res) => {
     res.status(200).json(reservation);
   } catch (error) {
     console.error("Error fetching reservation:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Get all reservations (admin)
+exports.getAllReservations = async (req, res) => {
+  try {
+    // Fetch data from all collections, sorting by "createdAt" descending
+    const reservations = await Reservation.find()
+      .sort({ createdAt: -1 })
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const approvedReservations = await ApprovedReservation.find()
+      .sort({ createdAt: -1 })
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const declinedReservations = await DeclinedReservation.find()
+      .sort({ createdAt: -1 })
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    const deletedReservations = await DeletedReservation.find()
+      .sort({ createdAt: -1 })
+      .populate("scenario")
+      .populate("chapter")
+      .populate("timeSlot");
+
+    // Send data grouped by collection
+    res.status(200).json({
+      reservations,
+      approvedReservations,
+      declinedReservations,
+      deletedReservations,
+    });
+  } catch (error) {
+    console.error("Error fetching reservations:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
